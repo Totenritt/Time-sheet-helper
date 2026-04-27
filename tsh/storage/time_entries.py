@@ -165,6 +165,13 @@ def update(conn: sqlite3.Connection, entry_id: int, **fields: Any) -> TimeEntry:
                 f"Allowed fields: {sorted(_MUTABLE_FIELDS)}."
             )
 
+    # Guard: reject unknown field names.
+    for key in fields:
+        if key not in _MUTABLE_FIELDS:
+            raise ValueError(
+                f"Unknown field {key!r}. Allowed: {sorted(_MUTABLE_FIELDS)}"
+            )
+
     # Verify the entry exists.
     if get(conn, entry_id) is None:
         raise ValueError(f"No time_entry with id={entry_id}.")

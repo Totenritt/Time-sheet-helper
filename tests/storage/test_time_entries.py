@@ -261,6 +261,12 @@ class TestUpdate:
         with pytest.raises(ValueError, match="created_at"):
             te.update(db_conn, entry_id, created_at=datetime.now(UTC))
 
+    def test_update_unknown_field_raises(self, db_conn):
+        """Attempting to update an unknown field raises ValueError."""
+        entry_id = te.insert(db_conn, _entry())
+        with pytest.raises(ValueError, match="Unknown field"):
+            te.update(db_conn, entry_id, colour="red")
+
 
 # ---------------------------------------------------------------------------
 # delete
