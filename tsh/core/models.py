@@ -6,7 +6,7 @@ instances are hashable and accidental mutation is caught at runtime.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
@@ -46,12 +46,12 @@ class TimeEntry:
     ticket_key: str | None
     start_at: datetime
     end_at: datetime | None
-    note: str
     kind: Kind
     jira_worklog_id: str | None
     pushed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    note: str = field(default="")
 
     def __post_init__(self) -> None:
         # Validate kind at runtime (Literal alone does not enforce this).

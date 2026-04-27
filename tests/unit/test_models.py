@@ -67,6 +67,22 @@ def test_time_entry_constructs_with_aware_datetimes() -> None:
     assert entry.jira_worklog_id == "wl-99"
 
 
+def test_note_defaults_to_empty_string() -> None:
+    now = _aware()
+    entry = TimeEntry(
+        id=None,
+        ticket_key="PROJ-1",
+        start_at=now,
+        end_at=None,
+        kind="work",
+        jira_worklog_id=None,
+        pushed_at=None,
+        created_at=now,
+        updated_at=now,
+    )
+    assert entry.note == ""
+
+
 # ---------------------------------------------------------------------------
 # 2. is_active property
 # ---------------------------------------------------------------------------
