@@ -2,13 +2,17 @@
 
 Phases 1-6 of the plan are merged on `master`. The CLI works end-to-end (manual log + push) and the live-timer daemon (`tsh tray`) works. The GUI is **not built yet** — interactions are CLI-only or via the system tray menu.
 
-## Activate the venv
+## Set up
 
 ```powershell
 cd "C:\Users\Casey Luo\Documents\SWS\timesheet_helper"
-.\.venv\Scripts\activate
-pytest -q                                # confirm 311 still pass
+uv sync --all-extras                     # one-time / after pulling new commits
+uv run pytest -q                         # confirm 311 still pass
 ```
+
+`uv run <cmd>` invokes the project venv automatically. All `tsh` commands below
+can be prefixed with `uv run` (e.g. `uv run tsh status`) instead of activating
+the venv. If you prefer to activate, `.\.venv\Scripts\activate` still works.
 
 ## One-time auth (skip if already done)
 

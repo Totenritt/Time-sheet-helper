@@ -62,10 +62,12 @@ Resume next session at **Phase 7 — GUI** (pywebview SPA on top of the local HT
 
 ### How to resume
 
+This project uses [uv](https://docs.astral.sh/uv/). Resume with:
+
 ```powershell
 cd "C:\Users\Casey Luo\Documents\SWS\timesheet_helper"
-.venv\Scripts\activate
-pytest -q                    # confirm 198 still pass
+uv sync --all-extras         # install/refresh deps from pyproject.toml + uv.lock
+uv run pytest -q             # confirm 311 still pass
 ```
 
 Then dispatch Task 13 (Phase 5.1: CLI auth + config commands). The plan task descriptions below are the canonical specs to brief the next implementer subagent.
