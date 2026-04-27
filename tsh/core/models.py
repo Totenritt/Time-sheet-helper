@@ -15,8 +15,28 @@ Kind = Literal["work", "not_work", "idle_unresolved"]
 _VALID_KINDS: frozenset[str] = frozenset({"work", "not_work", "idle_unresolved"})
 
 
-def _require_aware(value: datetime | None, field_name: str) -> None:
-    """Raise ValueError if *value* is a naive datetime (tzinfo is None)."""
+def _require_aware(field_name: str, value: datetime) -> None:
+    """Raise ValueError if *value* is None or a naive datetime (tzinfo is None).
+
+    Use this for fields that are typed as required (non-optional) datetime.
+    """
+    if value is None:
+        raise ValueError(
+            f"'{field_name}' is required and must not be None."
+        )
+    if value.tzinfo is None:
+        raise ValueError(
+            f"'{field_name}' must be a timezone-aware datetime, "
+            f"but received a naive datetime: {value!r}"
+        )
+
+
+def _require_optional_aware(field_name: str, value: datetime | None) -> None:
+    """Raise ValueError if *value* is a naive datetime (tzinfo is None).
+
+    Use this for fields that are typed as optional (datetime | None); None is
+    allowed and passes through without error.
+    """
     if value is not None and value.tzinfo is None:
         raise ValueError(
             f"'{field_name}' must be a timezone-aware datetime, "
@@ -51,6 +71,8 @@ class TimeEntry:
     pushed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    # Moved to end of field list to satisfy dataclass default-ordering rules;
+    # logically the 5th field per spec §5.1.
     note: str = field(default="")
 
     def __post_init__(self) -> None:
@@ -61,11 +83,13 @@ class TimeEntry:
             )
 
         # Validate timezone-awareness for every datetime field.
-        _require_aware(self.start_at, "start_at")
-        _require_aware(self.end_at, "end_at")
-        _require_aware(self.pushed_at, "pushed_at")
-        _require_aware(self.created_at, "created_at")
-        _require_aware(self.updated_at, "updated_at")
+        # Required fields: None is not accepted.
+        _require_aware("start_at", self.start_at)
+        _require_aware("created_at", self.created_at)
+        _require_aware("updated_at", self.updated_at)
+        # Optional fields: None is accepted, but a naive datetime is not.
+        _require_optional_aware("end_at", self.end_at)
+        _require_optional_aware("pushed_at", self.pushed_at)
 
     @property
     def is_active(self) -> bool:
@@ -100,5 +124,5 @@ class TicketCacheEntry:
     last_used_at: datetime
 
     def __post_init__(self) -> None:
-        _require_aware(self.last_fetched_at, "last_fetched_at")
-        _require_aware(self.last_used_at, "last_used_at")
+        _require_aware("last_fetched_at", self.last_fetched_at)
+        _require_aware("last_used_at", self.last_used_at)

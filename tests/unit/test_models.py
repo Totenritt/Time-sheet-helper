@@ -192,3 +192,65 @@ def test_ticket_cache_entry_rejects_naive_last_fetched_at() -> None:
             last_fetched_at=_naive(),
             last_used_at=now,
         )
+
+
+# ---------------------------------------------------------------------------
+# 11. TicketCacheEntry rejects naive last_used_at
+# ---------------------------------------------------------------------------
+
+def test_ticket_cache_entry_rejects_naive_last_used_at() -> None:
+    now = _aware()
+    with pytest.raises(ValueError, match="last_used_at"):
+        TicketCacheEntry(
+            ticket_key="PROJ-42",
+            summary="Fix the thing",
+            status="In Progress",
+            assignee_email="dev@example.com",
+            last_fetched_at=now,
+            last_used_at=_naive(),
+        )
+
+
+# ---------------------------------------------------------------------------
+# 12. Required datetime fields reject None
+# ---------------------------------------------------------------------------
+
+def test_time_entry_rejects_none_start_at() -> None:
+    with pytest.raises(ValueError, match="start_at"):
+        _make_entry(start_at=None)  # type: ignore[arg-type]
+
+
+def test_time_entry_rejects_none_created_at() -> None:
+    with pytest.raises(ValueError, match="created_at"):
+        _make_entry(created_at=None)  # type: ignore[arg-type]
+
+
+def test_time_entry_rejects_none_updated_at() -> None:
+    with pytest.raises(ValueError, match="updated_at"):
+        _make_entry(updated_at=None)  # type: ignore[arg-type]
+
+
+def test_ticket_cache_entry_rejects_none_last_fetched_at() -> None:
+    now = _aware()
+    with pytest.raises(ValueError, match="last_fetched_at"):
+        TicketCacheEntry(
+            ticket_key="PROJ-42",
+            summary="Fix the thing",
+            status="In Progress",
+            assignee_email="dev@example.com",
+            last_fetched_at=None,  # type: ignore[arg-type]
+            last_used_at=now,
+        )
+
+
+def test_ticket_cache_entry_rejects_none_last_used_at() -> None:
+    now = _aware()
+    with pytest.raises(ValueError, match="last_used_at"):
+        TicketCacheEntry(
+            ticket_key="PROJ-42",
+            summary="Fix the thing",
+            status="In Progress",
+            assignee_email="dev@example.com",
+            last_fetched_at=now,
+            last_used_at=None,  # type: ignore[arg-type]
+        )
