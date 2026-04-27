@@ -69,6 +69,9 @@ class IdleConfig:
             max_idle_minutes_before_autostop=int(
                 time_cfg["max_idle_minutes_before_autostop"]
             ),
+            poll_interval_seconds=float(
+                time_cfg.get("idle_poll_interval_seconds", DEFAULT_POLL_INTERVAL_SECONDS)
+            ),
         )
 
 
