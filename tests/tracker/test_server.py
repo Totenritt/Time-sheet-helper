@@ -495,3 +495,35 @@ class TestIdleReturn:
 
         # Idle should be cleared
         assert state.idle.status == "clear"
+
+
+# ---------------------------------------------------------------------------
+# /shutdown tests
+# ---------------------------------------------------------------------------
+
+
+class TestShutdown:
+    def test_shutdown_endpoint_calls_callback(
+        self, state: TrackerState
+    ) -> None:
+        """20. /shutdown is registered when shutdown_callback is provided; calling it invokes
+        the callback and returns {'shutting_down': True}."""
+        called = []
+
+        def callback():
+            called.append(True)
+
+        client = TestClient(create_app(state, shutdown_callback=callback))
+        resp = client.post("/shutdown")
+        assert resp.status_code == 200
+        assert resp.json() == {"shutting_down": True}
+        assert called == [True]
+
+    def test_shutdown_endpoint_not_registered_without_callback(
+        self, client: TestClient
+    ) -> None:
+        """21. /shutdown is NOT registered when shutdown_callback is None (the default)."""
+        # The default `client` fixture uses create_app(state) with no callback.
+        resp = client.post("/shutdown")
+        assert resp.status_code in (404, 405)  # route not registered
+

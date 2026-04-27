@@ -230,7 +230,11 @@ def _entry_to_dict(e: TimeEntry) -> dict:
     }
 
 
-def create_app(state: TrackerState) -> FastAPI:
+def create_app(
+    state: TrackerState,
+    *,
+    shutdown_callback: Callable[[], None] | None = None,
+) -> FastAPI:
     """Build a FastAPI app wired to the given TrackerState."""
     app = FastAPI(title="tsh tracker")
 
@@ -321,5 +325,11 @@ def create_app(state: TrackerState) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return {"written": [_entry_to_dict(e) for e in written]}
+
+    if shutdown_callback is not None:
+        @app.post("/shutdown")
+        def post_shutdown() -> dict:
+            shutdown_callback()
+            return {"shutting_down": True}
 
     return app

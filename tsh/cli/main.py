@@ -4,7 +4,8 @@ from __future__ import annotations
 import click
 
 from tsh import __version__
-from tsh.cli import auth, config_cmd, push as push_cmd, review
+from tsh.cli import auth, config_cmd, push as push_cmd, review, tracking
+from tsh.cli import tray as tray_cmd
 
 
 @click.group()
@@ -20,3 +21,10 @@ cli.add_command(review.review)
 cli.add_command(review.edit)
 cli.add_command(review.delete)
 cli.add_command(push_cmd.push)
+cli.add_command(tracking.start)
+cli.add_command(tracking.switch)
+cli.add_command(tracking.stop)
+cli.add_command(tracking.status)
+cli.add_command(tracking.tasks)
+cli.add_command(tray_cmd.tray)
+cli.add_command(tray_cmd.quit_cmd, name="quit")
