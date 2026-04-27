@@ -1,9 +1,11 @@
 """CLI entry point."""
 
+from tsh.cli.main import cli
+
 
 def main() -> None:
-    """Console-script entry point. Implementation lands in Phase 5."""
-    print("tsh: not yet implemented")
+    """Console-script entry point."""
+    cli()
 
 
 if __name__ == "__main__":
