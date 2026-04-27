@@ -51,7 +51,8 @@ def push(day: str | None, dry_run: bool, as_json: bool) -> None:
             return
 
         if dry_run:
-            _emit(planned_to_results(planned), planned, as_json, dry_run=True)
+            results = jira_push.execute_push(planned, client=None, dry_run=True)
+            _emit(results, planned, as_json, dry_run=True)
             return
 
         client = JiraClient(base_url=base_url, email=email, token=token)
@@ -85,21 +86,6 @@ def push(day: str | None, dry_run: bool, as_json: bool) -> None:
         conn.close()
 
 
-def planned_to_results(planned: list[jira_push.PlannedPush]) -> list[jira_push.PushResult]:
-    """Convert plans to dry-run PushResults (no HTTP)."""
-    return [
-        jira_push.PushResult(
-            entry_ids=p.entry_ids,
-            ticket_key=p.ticket_key,
-            ok=True,
-            jira_worklog_id=None,
-            error=None,
-            dry_run=True,
-        )
-        for p in planned
-    ]
-
-
 def _emit(
     results: list[jira_push.PushResult],
     planned: list[jira_push.PlannedPush],
@@ -131,7 +117,7 @@ def _emit(
     click.echo(label)
     click.echo("-" * 78)
     click.echo(
-        f"{'Ticket':<14}  {'Started':<25}  {'Spent':>7}  Status  Comment / Error"
+        f"{'Ticket':<14}  {'Started':<28}  {'Spent':>7}  Status  Comment / Error"
     )
     for r in results:
         p = plan_by_ids.get(r.entry_ids)
@@ -146,8 +132,8 @@ def _emit(
         else:
             status = "FAIL"
             tail = r.error or ""
-        started = (p.started_iso if p else "")[:25]
+        started = p.started_iso if p else ""
         click.echo(
-            f"{r.ticket_key:<14}  {started:<25}  {spent:>7}  {status:<6}  {tail}"
+            f"{r.ticket_key:<14}  {started:<28}  {spent:>7}  {status:<6}  {tail}"
         )
     click.echo("-" * 78)
