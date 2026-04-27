@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Iterable, Literal
+from collections.abc import Callable, Iterable
 
 from tsh.core.models import TimeEntry
 from tsh.core.time_math import round_seconds, RoundingMode
@@ -118,7 +118,7 @@ def execute_push(
     *,
     dry_run: bool = False,
     sleep_ms: int = 100,
-    _sleep: callable = time.sleep,
+    _sleep: Callable[[float], None] = time.sleep,
 ) -> list[PushResult]:
     """Execute each planned push against Jira (or simulate in dry_run).
 
