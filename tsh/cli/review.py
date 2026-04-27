@@ -246,6 +246,10 @@ def edit(entry_id: int) -> None:
             click.echo(f"Invalid TOML: {exc}", err=True)
             raise click.exceptions.Exit(1) from exc
         # Compute updates: only changed fields, only allowed fields.
+        # NOTE: a key omitted from the edited TOML is treated as "no change",
+        # not "clear this field". To clear a string field, set it to "" in the
+        # TOML; to clear end_at (resume the timer as active), set end_at = "".
+        # Removing the line entirely will leave the stored value untouched.
         updates: dict = {}
         for key in _EDITABLE_FIELDS:
             if key not in data:
