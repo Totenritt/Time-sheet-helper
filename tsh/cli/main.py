@@ -4,7 +4,7 @@ from __future__ import annotations
 import click
 
 from tsh import __version__
-from tsh.cli import auth, config_cmd
+from tsh.cli import auth, config_cmd, review
 
 
 @click.group()
@@ -15,3 +15,7 @@ def cli() -> None:
 
 cli.add_command(auth.auth_group, name="auth")
 cli.add_command(config_cmd.config_group, name="config")
+cli.add_command(review.log)
+cli.add_command(review.review)
+cli.add_command(review.edit)
+cli.add_command(review.delete)
