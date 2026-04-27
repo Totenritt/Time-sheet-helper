@@ -85,9 +85,9 @@ class JiraClient:
             email: Atlassian account email address.
             token: Atlassian API token.
             timeout: Request timeout in seconds (default 10).
-            client: Pre-built ``httpx.Client`` to use (for tests). When
-                provided the ``email``/``token``/``timeout`` values are still
-                recorded but the supplied client is used as-is.
+            client: Pre-built ``httpx.Client`` to use (for tests). If provided,
+                the email/token/timeout args are ignored (the caller's client
+                should already be configured with auth and timeout).
             _sleep: Callable used between retries. Defaults to ``time.sleep``;
                 inject a ``Mock`` in tests to avoid real delays.
         """

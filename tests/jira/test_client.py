@@ -406,3 +406,41 @@ class TestRetryLogic:
 
         assert route.call_count == 1
         sleep_mock.assert_not_called()
+
+    @respx.mock
+    def test_timeout_then_success_retries(self):
+        """A TimeoutException on first attempt triggers retry."""
+        sleep_mock = Mock()
+        client = _make_client(sleep_fn=sleep_mock)
+        route = respx.get(f"{BASE_URL}/rest/api/3/myself").mock(
+            side_effect=[
+                httpx.TimeoutException("timed out"),
+                httpx.Response(200, json={"displayName": "Casey"}),
+            ]
+        )
+        result = client.auth_test()
+        client.close()
+
+        assert result == {"displayName": "Casey"}
+        assert route.call_count == 2
+        sleep_mock.assert_called_once_with(1.0)
+
+    @respx.mock
+    def test_5xx_then_4xx_surfaces_4xx(self):
+        """A 5xx followed by a 4xx surfaces the 4xx after one retry."""
+        sleep_mock = Mock()
+        client = _make_client(sleep_fn=sleep_mock)
+        route = respx.post(
+            f"{BASE_URL}/rest/api/3/issue/SFXS-1/worklog"
+        ).mock(
+            side_effect=[
+                httpx.Response(503, text="server hiccup"),
+                httpx.Response(400, text="bad payload"),
+            ]
+        )
+        with pytest.raises(JiraClientError):
+            client.post_worklog("SFXS-1", "2026-04-27T14:30:00.000+1000", 900, "test")
+        client.close()
+
+        assert route.call_count == 2
+        sleep_mock.assert_called_once_with(1.0)
