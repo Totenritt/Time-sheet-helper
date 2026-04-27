@@ -4,9 +4,16 @@
 
 ## Status — 2026-04-27
 
-**Phases 1–4 complete (12 of 25 tasks). 198 tests passing on `master`.**
+**Phases 1–5 complete (15 of 25 tasks). 249 tests passing on `master`.**
 
-Resume next session at **Phase 5 — CLI MVP**, starting with Task 13 (`tsh/cli/main.py` + `auth.py` + `config_cmd.py`).
+**Headless CLI MVP is now usable end-to-end.** With a real Jira API token in keyring, the user can run:
+- `tsh auth login`, `tsh auth test`
+- `tsh config get/set`
+- `tsh log SFXS-XXXX 45m -m "note"`
+- `tsh review [--day ...] [--json]`, `tsh edit <id>`, `tsh delete <id>`
+- `tsh push [--day ...] [--dry-run] [--json]` — dry-run never touches Jira; real push marks contributing entries as pushed and exits non-zero on any failure.
+
+Resume next session at **Phase 6 — Tracker** (HTTP server + idle loop + tray + GUI launcher), starting with Task 16 (`tsh/tracker/server.py`).
 
 ### Completed work
 
@@ -24,6 +31,9 @@ Resume next session at **Phase 5 — CLI MVP**, starting with Task 13 (`tsh/cli/
 | 3.3 | `tickets_cache` repo | `tsh/storage/tickets_cache.py` | 17 | `bf461f6` |
 | 4.1 | Jira client | `tsh/jira/client.py` | 21 | `46d6920`, `611cc29` |
 | 4.2 | Push orchestration | `tsh/jira/push.py` | 20 | `ed61877`, `212b7f3` |
+| 5.1 | CLI auth + config | `tsh/cli/main.py`, `auth.py`, `config_cmd.py` | 17 | `9a22559`, `9ee365c` |
+| 5.2 | CLI log/review/edit/delete | `tsh/cli/_db.py`, `tsh/cli/review.py` | 23 | `de81ad8`, `7a35d60` |
+| 5.3 | CLI push (with `--dry-run`) | `tsh/cli/push.py` | 11 | `7392fdd`, `9215843` |
 
 **What's actually working today:**
 - Full pure core (timer state model, timezone discipline, rounding math, idle reconciliation logic) — no I/O.
