@@ -74,6 +74,11 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
     """
     if str(db_path) != ":memory:":
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    # check_same_thread=False: the tracker (and FastAPI's TestClient) dispatch
+    # request handlers to worker threads via anyio, but every TrackerState
+    # instance owns exactly one connection accessed sequentially per request.
+    # We never share a connection across true concurrent writers, so relaxing
+    # the thread guard is safe for this single-process, single-user app.
     conn = sqlite3.connect(
         str(db_path),
         detect_types=sqlite3.PARSE_DECLTYPES,
