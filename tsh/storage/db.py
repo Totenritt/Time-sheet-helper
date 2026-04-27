@@ -42,10 +42,17 @@ def _adapt_datetime(dt: datetime) -> str:
 
 def _convert_datetime(value: bytes) -> datetime:
     """Parse stored TIMESTAMP back into an aware UTC datetime."""
-    return datetime.fromisoformat(value.decode("ascii"))
+    dt = datetime.fromisoformat(value.decode("ascii"))
+    if dt.tzinfo is None:
+        raise ValueError(
+            f"stored TIMESTAMP {value!r} has no timezone — expected UTC ISO 8601"
+        )
+    return dt
 
 
-# Register globally so every connection uses the same rules.
+# WARNING: register_adapter is process-wide. Importing this module makes the
+# naive-datetime guard apply to every sqlite3 connection in this Python
+# process, not just connections created via tsh.storage.db.connect().
 sqlite3.register_adapter(datetime, _adapt_datetime)
 sqlite3.register_converter("TIMESTAMP", _convert_datetime)
 
@@ -65,10 +72,13 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
       (naive datetimes raise ``ValueError`` at bind time).
     - ``run_migrations()`` invoked automatically (idempotent).
     """
+    if str(db_path) != ":memory:":
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(
         str(db_path),
         detect_types=sqlite3.PARSE_DECLTYPES,
     )
+    conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     run_migrations(conn)
     return conn
@@ -90,9 +100,6 @@ def run_migrations(conn: sqlite3.Connection) -> None:
 
         sql = (MIGRATIONS_DIR / sql_filename).read_text(encoding="utf-8")
         conn.executescript(sql)
-        # PRAGMA user_version cannot be set via a parameter binding;
-        # the version number is a trusted literal from our own MIGRATIONS list.
-        conn.execute(f"PRAGMA user_version = {target_version}")
         current_version = target_version
 
 

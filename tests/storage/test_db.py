@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -189,3 +190,90 @@ class TestTxContextManager:
             "SELECT ticket_key FROM time_entries WHERE ticket_key='PROJ-TX2'",
         )
         assert row is None, "rolled-back row must not be visible"
+
+
+# ---------------------------------------------------------------------------
+# connect() — parent directory creation (fix 2)
+# ---------------------------------------------------------------------------
+
+
+def test_connect_creates_parent_directory(tmp_path):
+    """connect() must create missing ancestor directories automatically."""
+    nested = tmp_path / "deep" / "nest" / "tsh.db"
+    conn = db.connect(nested)
+    try:
+        assert nested.exists()
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# connect() — row_factory (fix 3)
+# ---------------------------------------------------------------------------
+
+
+def test_connect_sets_row_factory_to_row(tmp_path):
+    """Connections returned by connect() must support name-based column access."""
+    conn = db.connect(tmp_path / "x.db")
+    try:
+        cursor = conn.execute("SELECT 1 AS n")
+        row = cursor.fetchone()
+        assert row["n"] == 1
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Migration atomicity (fix 1)
+# ---------------------------------------------------------------------------
+
+
+def test_migration_atomicity_on_partial_failure(tmp_path, monkeypatch):
+    """A migration that fails to load must not advance user_version past the last good state."""
+    # Patch MIGRATIONS so that after the real migration 1 there is a migration 2
+    # that references a non-existent SQL file.  The FileNotFoundError raised
+    # during the file-read must leave user_version at 1, not 2.
+    monkeypatch.setattr(
+        db,
+        "MIGRATIONS",
+        [(1, "001_initial.sql"), (2, "missing.sql")],
+    )
+    with pytest.raises(FileNotFoundError):
+        db.connect(tmp_path / "partial.db")
+
+    # Open a raw connection (no migrations) to inspect the user_version.
+    raw = sqlite3.connect(str(tmp_path / "partial.db"))
+    try:
+        version = raw.execute("PRAGMA user_version").fetchone()[0]
+        assert version == 1, (
+            f"user_version should be 1 (first migration applied) but got {version}"
+        )
+    finally:
+        raw.close()
+
+
+# ---------------------------------------------------------------------------
+# _convert_datetime naive guard (fix 4)
+# ---------------------------------------------------------------------------
+
+
+def test_convert_datetime_rejects_naive_stored_value(tmp_path):
+    """Reading a TIMESTAMP column that holds a naive ISO string must raise ValueError."""
+    conn = db.connect(tmp_path / "naive.db")
+    try:
+        # Insert a naive ISO string directly as a string literal, bypassing
+        # the datetime adapter so no ValueError fires at insert time.
+        conn.execute(
+            "INSERT INTO time_entries (start_at, kind, created_at, updated_at) "
+            "VALUES (?, 'work', ?, ?)",
+            (
+                "2026-04-27T14:30:00",          # naive — no offset
+                "2026-04-27T14:30:00+00:00",
+                "2026-04-27T14:30:00+00:00",
+            ),
+        )
+        conn.commit()
+        with pytest.raises(ValueError, match="no timezone"):
+            conn.execute("SELECT start_at FROM time_entries").fetchone()
+    finally:
+        conn.close()

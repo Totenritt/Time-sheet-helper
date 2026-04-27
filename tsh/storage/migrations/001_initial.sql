@@ -22,3 +22,5 @@ CREATE TABLE tickets_cache (
     last_fetched_at TIMESTAMP NOT NULL,
     last_used_at TIMESTAMP NOT NULL
 );
+
+PRAGMA user_version = 1;
