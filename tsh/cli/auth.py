@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 import click
-import httpx
 
 from tsh.config import credentials, loader
 from tsh.jira.client import JiraAuthError, JiraClient, JiraError

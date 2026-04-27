@@ -4,6 +4,7 @@ from __future__ import annotations
 import click
 
 from tsh import __version__
+from tsh.cli import auth, config_cmd
 
 
 @click.group()
@@ -12,11 +13,5 @@ def cli() -> None:
     """tsh — Jira time-tracking helper."""
 
 
-# Subcommand group registration: auth, config, more in later phases.
-def _register_subcommands() -> None:
-    from tsh.cli import auth, config_cmd
-    cli.add_command(auth.auth_group, name="auth")
-    cli.add_command(config_cmd.config_group, name="config")
-
-
-_register_subcommands()
+cli.add_command(auth.auth_group, name="auth")
+cli.add_command(config_cmd.config_group, name="config")
