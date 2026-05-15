@@ -11,9 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from datetime import datetime as _datetime
-from datetime import timedelta as _timedelta
-from datetime import timezone as _tz
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -58,7 +56,7 @@ def recover_stale_active(
     *,
     stale_threshold_minutes: int,
     idle_threshold_minutes: int,
-    now: _datetime | None = None,
+    now: datetime | None = None,
 ) -> None:
     """Close an orphaned active entry left from a previous daemon session.
 
@@ -67,7 +65,7 @@ def recover_stale_active(
     (best-effort: that's when idle would have first triggered had the daemon
     been running) and flag for reconciliation with reason='orphaned_active'.
     """
-    now = now or _datetime.now(_tz.utc)
+    now = now or datetime.now(timezone.utc)
     conn = state._connection()
     active = time_entries.get_active(conn)
     if active is None or active.start_at is None:
@@ -76,7 +74,7 @@ def recover_stale_active(
     if age < stale_threshold_minutes * 60:
         return
 
-    close_at = active.start_at + _timedelta(minutes=idle_threshold_minutes)
+    close_at = active.start_at + timedelta(minutes=idle_threshold_minutes)
     if close_at > now:
         close_at = now  # safety net: don't set end_at in the future
     with db_module.tx(conn):
