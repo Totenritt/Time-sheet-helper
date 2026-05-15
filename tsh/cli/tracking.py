@@ -59,9 +59,14 @@ def _warn_if_pending() -> None:
 
     Talks to SQLite directly (not the tracker) so it works even when the
     daemon is down. Silent on any error — the warning is best-effort.
+    Short-circuits when the DB file doesn't exist to avoid creating one
+    via `db_module.connect()` from a non-authoring command like `tsh status`.
     """
+    db_path = loader.config_dir() / "tsh.db"
+    if not db_path.exists():
+        return
     try:
-        conn = db_module.connect(loader.config_dir() / "tsh.db")
+        conn = db_module.connect(db_path)
     except Exception:
         return
     try:

@@ -314,6 +314,23 @@ def test_warning_appears_on_start_and_switch(isolated_config, mocker):
     assert "1 pending reconciliation" in r2.output
 
 
+def test_warn_does_not_create_db_on_clean_install(isolated_config, mocker):
+    """On a fresh install with no DB yet, status should not create the DB just to check the banner."""
+    from tsh.config import loader
+
+    db_path = loader.config_dir() / "tsh.db"
+    assert not db_path.exists(), "test setup invariant: isolated_config fixture starts clean"
+
+    mocker.patch("tsh.cli.tracking._is_running", return_value=True)
+    mocker.patch("tsh.cli.tracking._get", return_value={
+        "active": None, "elapsed_seconds": 0,
+        "idle_status": "clear", "idle_started_at": None,
+    })
+    result = CliRunner().invoke(cli, ["status"])
+    assert result.exit_code == 0
+    assert not db_path.exists(), "_warn_if_pending must not create the DB when none exists"
+
+
 # ---------------------------------------------------------------------------
 # 15+. tsh switch --from-branch
 # ---------------------------------------------------------------------------
