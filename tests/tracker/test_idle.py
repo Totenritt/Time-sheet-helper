@@ -78,6 +78,21 @@ def _make_loop(state, fake_provider, fixed_clock, **kw):
     )
 
 
+def _insert_active(state, ticket: str, start_at: datetime) -> int:
+    """Insert an active (end_at NULL) work entry; return id."""
+    from tsh.core.models import TimeEntry
+    conn = state._connection()
+    entry = TimeEntry(
+        id=None, ticket_key=ticket, start_at=start_at, end_at=None,
+        kind="work", note="", jira_worklog_id=None, pushed_at=None,
+        created_at=start_at, updated_at=start_at,
+    )
+    eid = time_entries.insert(conn, entry)
+    conn.commit()
+    state.refresh()
+    return eid
+
+
 # ---------------------------------------------------------------------------
 # Test 1: clear stays clear when no active timer (idle >> threshold)
 # ---------------------------------------------------------------------------
@@ -394,3 +409,109 @@ def test_idle_config_from_config(monkeypatch, tmp_path):
     cfg = IdleConfig.from_config()
     assert cfg.threshold_minutes == 5
     assert cfg.max_idle_minutes_before_autostop == 60
+
+
+# ---------------------------------------------------------------------------
+# Sleep detection tests (Task 20.2)
+# ---------------------------------------------------------------------------
+
+
+def test_sleep_detected_with_active_timer_closes_at_last_input(
+    state, fake_provider, fixed_clock
+) -> None:
+    provider, set_idle = fake_provider
+    clock, set_now = fixed_clock
+
+    start_at = datetime(2026, 5, 14, 21, 0, tzinfo=timezone.utc)
+    _insert_active(state, "SFXS-1234", start_at)
+
+    # Baseline tick: now=22:00, idle=10s -> last_input was 21:59:50.
+    set_now(datetime(2026, 5, 14, 22, 0, 0, tzinfo=timezone.utc))
+    set_idle(10.0)
+    loop = _make_loop(state, fake_provider, fixed_clock)
+    loop.tick()
+    assert state.idle.status == "clear"
+
+    # Sleep: 8h later; idle reading is "fresh" (sleep ate the gap).
+    set_now(datetime(2026, 5, 15, 6, 0, 0, tzinfo=timezone.utc))
+    set_idle(5.0)
+    loop.tick()
+
+    conn = state._connection()
+    assert time_entries.get_active(conn) is None, "active entry should have been closed"
+    row = conn.execute(
+        "SELECT end_at, pending_reconciliation, reconciliation_reason "
+        "FROM time_entries WHERE ticket_key = 'SFXS-1234'"
+    ).fetchone()
+    assert row["pending_reconciliation"] == 1
+    assert row["reconciliation_reason"] == "sleep"
+    # last_input from baseline: 22:00:00 - 10s = 21:59:50.
+    assert row["end_at"] == datetime(2026, 5, 14, 21, 59, 50, tzinfo=timezone.utc)
+
+
+def test_normal_tick_does_not_trigger_sleep_handler(
+    state, fake_provider, fixed_clock
+) -> None:
+    provider, set_idle = fake_provider
+    clock, set_now = fixed_clock
+    _insert_active(state, "SFXS-7", datetime(2026, 5, 15, 9, 0, tzinfo=timezone.utc))
+
+    set_now(datetime(2026, 5, 15, 9, 5, 0, tzinfo=timezone.utc))
+    set_idle(5.0)
+    loop = _make_loop(state, fake_provider, fixed_clock)
+    loop.tick()
+
+    set_now(datetime(2026, 5, 15, 9, 5, 30, tzinfo=timezone.utc))
+    set_idle(35.0)
+    loop.tick()
+
+    conn = state._connection()
+    assert time_entries.get_active(conn) is not None
+    assert time_entries.count_pending_reconciliation(conn) == 0
+
+
+def test_sleep_with_no_active_timer_is_noop(
+    state, fake_provider, fixed_clock
+) -> None:
+    _, set_idle = fake_provider
+    _, set_now = fixed_clock
+
+    set_now(datetime(2026, 5, 14, 22, 0, 0, tzinfo=timezone.utc))
+    set_idle(5.0)
+    loop = _make_loop(state, fake_provider, fixed_clock)
+    loop.tick()
+
+    set_now(datetime(2026, 5, 15, 6, 0, 0, tzinfo=timezone.utc))
+    set_idle(5.0)
+    loop.tick()
+
+    conn = state._connection()
+    assert time_entries.count_pending_reconciliation(conn) == 0
+
+
+def test_sleep_during_idle_pending_updates_reason_to_sleep(
+    state, fake_provider, fixed_clock
+) -> None:
+    _, set_idle = fake_provider
+    _, set_now = fixed_clock
+    start_at = datetime(2026, 5, 14, 12, 0, tzinfo=timezone.utc)
+    _insert_active(state, "SFXS-99", start_at)
+
+    # Tick 1: cross idle threshold -> pending.
+    set_now(datetime(2026, 5, 14, 12, 15, 0, tzinfo=timezone.utc))
+    set_idle(11 * 60.0)  # 11 minutes idle (threshold 10).
+    loop = _make_loop(state, fake_provider, fixed_clock)
+    loop.tick()
+    assert state.idle.status == "pending"
+
+    # Tick 2: sleep happens. Expected close_at = 12:15:00 - 11min = 12:04:00.
+    set_now(datetime(2026, 5, 14, 20, 15, 0, tzinfo=timezone.utc))
+    set_idle(5.0)
+    loop.tick()
+
+    conn = state._connection()
+    row = conn.execute(
+        "SELECT end_at, reconciliation_reason FROM time_entries WHERE ticket_key = 'SFXS-99'"
+    ).fetchone()
+    assert row["reconciliation_reason"] == "sleep"
+    assert row["end_at"] == datetime(2026, 5, 14, 12, 4, 0, tzinfo=timezone.utc)

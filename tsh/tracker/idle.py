@@ -34,6 +34,9 @@ logger = logging.getLogger(__name__)
 # Default poll interval. Spec says "every 30 seconds." Tests pass smaller values.
 DEFAULT_POLL_INTERVAL_SECONDS = 30.0
 
+# Minimum wall-clock jump to count as a machine sleep event.
+SLEEP_THRESHOLD_FLOOR_SECONDS = 90.0
+
 
 def _win32_idle_seconds() -> float:
     """Real-platform implementation: seconds since the user's last input.
@@ -100,6 +103,11 @@ class IdleLoop:
         self._idle_seconds = idle_seconds_provider
         self._clock = clock
         self.pending_reconciliation = False
+        self._prev_now: datetime | None = None
+        self._prev_last_input_at: datetime | None = None
+        self._sleep_threshold_seconds = max(
+            3 * self.config.poll_interval_seconds, SLEEP_THRESHOLD_FLOOR_SECONDS
+        )
 
     # --- public scheduling --------------------------------------------------
 
@@ -123,9 +131,22 @@ class IdleLoop:
             logger.exception("idle provider raised; skipping tick")
             return
 
+        now = self._clock()
+        last_input_at = now - timedelta(seconds=idle_seconds)
+
+        # Sleep detection: wall-clock jumped further than poll interval allows.
+        if self._prev_now is not None:
+            delta = (now - self._prev_now).total_seconds()
+            if delta >= self._sleep_threshold_seconds:
+                self._handle_sleep()
+                self._prev_now = now
+                self._prev_last_input_at = last_input_at
+                return
+        self._prev_now = now
+        self._prev_last_input_at = last_input_at
+
         threshold_seconds = self.config.threshold_minutes * 60
         max_seconds = self.config.max_idle_minutes_before_autostop * 60
-        now = self._clock()
         active = self.state.get_active()
 
         if self.state.idle.status == "clear":
@@ -184,6 +205,47 @@ class IdleLoop:
             status="autostopped",
             started_at=idle_started,
             autostopped_at=now,
+        )
+
+    def _handle_sleep(self) -> None:
+        """Wall-clock jumped past the sleep threshold: treat as machine sleep.
+
+        Close active entry (if any) at the PREVIOUS tick's last_input_at — the
+        user's last keystroke before the gap. Flag for reconciliation with
+        reason='sleep'. No active timer = no-op.
+        """
+        close_at = self._prev_last_input_at
+        if close_at is None:
+            return  # defensive — we set this every tick after the provider call
+
+        self.state.refresh()
+        active = self.state.get_active()
+        if active is None:
+            return
+
+        # Clamp: end_at must not precede start_at.
+        if active.start_at and close_at < active.start_at:
+            close_at = active.start_at
+
+        conn = self.state._connection()
+        try:
+            with db_module.tx(conn):
+                closed = time_entries.end_active(conn, close_at)
+                assert closed is not None
+                time_entries.update(
+                    conn, closed.id,  # type: ignore[arg-type]
+                    pending_reconciliation=1,
+                    reconciliation_reason="sleep",
+                )
+        except Exception:
+            logger.exception("sleep-handler close failed; leaving timer active")
+            return
+
+        self.state.refresh()
+        self.state.idle = IdleState(status="clear")
+        logger.info(
+            "sleep detected: closed active %s at %s; queued for reconciliation",
+            active.ticket_key, close_at.isoformat(),
         )
 
     # --- API for the GUI/CLI to mark the prompt acknowledged ----------------
