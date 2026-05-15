@@ -286,24 +286,30 @@ def test_convert_datetime_rejects_naive_stored_value(tmp_path):
 
 def test_migration_002_adds_reconciliation_columns(tmp_path: Path) -> None:
     conn = db.connect(tmp_path / "tsh.db")
-    cols = {row["name"] for row in conn.execute("PRAGMA table_info(time_entries)")}
-    assert "reconciliation_reason" in cols
-    assert "pending_reconciliation" in cols
-    version = conn.execute("PRAGMA user_version").fetchone()[0]
-    assert version >= 2
+    try:
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(time_entries)")}
+        assert "reconciliation_reason" in cols
+        assert "pending_reconciliation" in cols
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        assert version == 2
+    finally:
+        conn.close()
 
 
 def test_migration_002_pending_reconciliation_defaults_zero(tmp_path: Path) -> None:
     conn = db.connect(tmp_path / "tsh.db")
-    now = datetime.now(timezone.utc)
-    conn.execute(
-        """INSERT INTO time_entries
-           (ticket_key, start_at, kind, created_at, updated_at)
-           VALUES ('X-1', ?, 'work', ?, ?)""",
-        (now, now, now),
-    )
-    row = conn.execute(
-        "SELECT pending_reconciliation, reconciliation_reason FROM time_entries"
-    ).fetchone()
-    assert row["pending_reconciliation"] == 0
-    assert row["reconciliation_reason"] is None
+    try:
+        now = datetime.now(timezone.utc)
+        conn.execute(
+            """INSERT INTO time_entries
+               (ticket_key, start_at, kind, created_at, updated_at)
+               VALUES ('X-1', ?, 'work', ?, ?)""",
+            (now, now, now),
+        )
+        row = conn.execute(
+            "SELECT pending_reconciliation, reconciliation_reason FROM time_entries"
+        ).fetchone()
+        assert row["pending_reconciliation"] == 0
+        assert row["reconciliation_reason"] is None
+    finally:
+        conn.close()
