@@ -25,6 +25,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "rounding_minutes": 15,
         "idle_threshold_minutes": 10,
         "max_idle_minutes_before_autostop": 240,
+        "stale_active_threshold_minutes": 120,
     },
     "app": {
         "autostart": False,

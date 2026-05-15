@@ -11,6 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from datetime import datetime as _datetime
+from datetime import timedelta as _timedelta
+from datetime import timezone as _tz
 from pathlib import Path
 from typing import Callable
 
@@ -18,6 +21,8 @@ import uvicorn
 
 from tsh.config import credentials, loader
 from tsh.jira.client import JiraClient
+from tsh.storage import db as db_module
+from tsh.storage import time_entries
 from tsh.tracker.idle import IdleConfig, IdleLoop
 from tsh.tracker.server import TrackerState, create_app
 from tsh.tracker.tray import IconActions, build_icon, refresh_icon
@@ -46,6 +51,49 @@ def _build_jira_client_factory() -> Callable[[], JiraClient | None]:
             return None
         return JiraClient(base_url=base_url, email=email, token=token)
     return factory
+
+
+def recover_stale_active(
+    state: TrackerState,
+    *,
+    stale_threshold_minutes: int,
+    idle_threshold_minutes: int,
+    now: _datetime | None = None,
+) -> None:
+    """Close an orphaned active entry left from a previous daemon session.
+
+    Called by run() BEFORE the HTTP port opens. If the active entry's start_at
+    is older than stale_threshold_minutes, close at start_at + idle_threshold
+    (best-effort: that's when idle would have first triggered had the daemon
+    been running) and flag for reconciliation with reason='orphaned_active'.
+    """
+    now = now or _datetime.now(_tz.utc)
+    conn = state._connection()
+    active = time_entries.get_active(conn)
+    if active is None or active.start_at is None:
+        return
+    age = (now - active.start_at).total_seconds()
+    if age < stale_threshold_minutes * 60:
+        return
+
+    close_at = active.start_at + _timedelta(minutes=idle_threshold_minutes)
+    if close_at > now:
+        close_at = now  # safety net: don't set end_at in the future
+    with db_module.tx(conn):
+        closed = time_entries.end_active(conn, close_at)
+        if closed is None:
+            logger.error("recover_stale_active: end_active returned None unexpectedly")
+            return
+        time_entries.update(
+            conn, closed.id,
+            pending_reconciliation=1,
+            reconciliation_reason="orphaned_active",
+        )
+    state.refresh()
+    logger.info(
+        "recovered orphaned active %s (started %.1fh ago) — closed at %s; queued for reconciliation",
+        active.ticket_key, age / 3600, close_at.isoformat(),
+    )
 
 
 async def _run_async(state: TrackerState, http_port: int) -> None:
@@ -128,6 +176,15 @@ def run() -> None:
         db_path=_db_path(),
         jira_client_factory=_build_jira_client_factory(),
     )
+    # Recover any orphaned active entry BEFORE opening the HTTP port.
+    try:
+        recover_stale_active(
+            state,
+            stale_threshold_minutes=int(cfg["time"]["stale_active_threshold_minutes"]),
+            idle_threshold_minutes=int(cfg["time"]["idle_threshold_minutes"]),
+        )
+    except Exception:
+        logger.exception("startup recovery failed; continuing anyway")
     try:
         asyncio.run(_run_async(state, http_port))
     finally:
