@@ -19,7 +19,11 @@ _READONLY_FIELDS = frozenset({"id", "created_at", "updated_at"})
 
 # All mutable fields accepted by update().
 _MUTABLE_FIELDS = frozenset(
-    {"ticket_key", "start_at", "end_at", "note", "kind", "jira_worklog_id", "pushed_at"}
+    {
+        "ticket_key", "start_at", "end_at", "note", "kind",
+        "jira_worklog_id", "pushed_at",
+        "pending_reconciliation", "reconciliation_reason",
+    }
 )
 
 UTC = timezone.utc
@@ -240,3 +244,33 @@ def mark_pushed(
         (jira_worklog_id, pushed_at, now, entry_id),
     )
     return get(conn, entry_id)  # type: ignore[return-value]
+
+
+def count_pending_reconciliation(conn: sqlite3.Connection) -> int:
+    """Number of entries currently flagged pending_reconciliation = 1.
+
+    Cheap COUNT(*) hitting the partial index. Used by the warning banner on
+    `tsh status` / `tsh start` / `tsh switch` so we don't hydrate full rows
+    in the common no-pending case.
+    """
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM time_entries WHERE pending_reconciliation = 1"
+    ).fetchone()
+    return int(row["n"])
+
+
+def list_pending_reconciliation(conn: sqlite3.Connection) -> list[TimeEntry]:
+    """Return entries with pending_reconciliation = 1, newest start_at first.
+
+    Used by `tsh reconcile` to walk pending cases. Caller resolves each via
+    core.reconcile semantics, writes resulting entries, then clears the flag
+    via `update(..., pending_reconciliation=0, reconciliation_reason=None)`.
+    """
+    rows = conn.execute(
+        """
+        SELECT * FROM time_entries
+        WHERE pending_reconciliation = 1
+        ORDER BY start_at DESC
+        """
+    ).fetchall()
+    return [_row_to_entry(row) for row in rows]

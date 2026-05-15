@@ -328,3 +328,61 @@ class TestMarkPushed:
         pushed_at = datetime(2026, 4, 27, 16, 0, tzinfo=UTC)
         with pytest.raises(ValueError, match="999999"):
             te.mark_pushed(db_conn, 999_999, "WL-X", pushed_at)
+
+
+# ---------------------------------------------------------------------------
+# count_pending_reconciliation / list_pending_reconciliation
+# ---------------------------------------------------------------------------
+
+
+def test_count_pending_reconciliation_empty(db_conn) -> None:
+    assert te.count_pending_reconciliation(db_conn) == 0
+
+
+def test_count_pending_reconciliation_counts_flagged_rows(db_conn) -> None:
+    now = datetime.now(UTC)
+    for ticket in ("X-1", "X-2", "X-3"):
+        db_conn.execute(
+            """INSERT INTO time_entries
+               (ticket_key, start_at, end_at, kind, created_at, updated_at,
+                pending_reconciliation, reconciliation_reason)
+               VALUES (?, ?, ?, 'work', ?, ?, ?, ?)""",
+            (ticket, now, now, now, now,
+             1 if ticket != "X-3" else 0,
+             "sleep" if ticket != "X-3" else None),
+        )
+    assert te.count_pending_reconciliation(db_conn) == 2
+
+
+def test_list_pending_reconciliation_returns_newest_first(db_conn) -> None:
+    base = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    for i, ticket in enumerate(("OLD-1", "MID-2", "NEW-3")):
+        db_conn.execute(
+            """INSERT INTO time_entries
+               (ticket_key, start_at, end_at, kind, created_at, updated_at,
+                pending_reconciliation, reconciliation_reason)
+               VALUES (?, ?, ?, 'work', ?, ?, 1, 'sleep')""",
+            (ticket, base + timedelta(hours=i), base + timedelta(hours=i, minutes=30),
+             base, base),
+        )
+    result = te.list_pending_reconciliation(db_conn)
+    assert [e.ticket_key for e in result] == ["NEW-3", "MID-2", "OLD-1"]
+
+
+def test_update_allows_reconciliation_columns(db_conn) -> None:
+    now = datetime.now(UTC)
+    cursor = db_conn.execute(
+        """INSERT INTO time_entries (ticket_key, start_at, kind, created_at, updated_at)
+           VALUES ('X-1', ?, 'work', ?, ?)""",
+        (now, now, now),
+    )
+    eid = cursor.lastrowid
+    te.update(
+        db_conn, eid, pending_reconciliation=1, reconciliation_reason="sleep"
+    )
+    row = db_conn.execute(
+        "SELECT pending_reconciliation, reconciliation_reason FROM time_entries WHERE id = ?",
+        (eid,),
+    ).fetchone()
+    assert row["pending_reconciliation"] == 1
+    assert row["reconciliation_reason"] == "sleep"
