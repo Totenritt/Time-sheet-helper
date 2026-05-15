@@ -65,6 +65,9 @@ def tray(detach: bool) -> None:
             creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
             close_fds=True,
             cwd=os.getcwd(),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         click.echo("tracker starting (detached)")
         return

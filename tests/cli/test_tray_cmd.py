@@ -110,6 +110,9 @@ def test_tray_detach_uses_pythonw_and_no_console(tmp_path, monkeypatch, mocker):
     flags = kwargs.get("creationflags", 0)
     assert flags & sp.CREATE_NO_WINDOW
     assert flags & sp.DETACHED_PROCESS
+    assert kwargs.get("stdin") == sp.DEVNULL
+    assert kwargs.get("stdout") == sp.DEVNULL
+    assert kwargs.get("stderr") == sp.DEVNULL
 
 
 def test_tray_detach_noop_when_already_running(tmp_path, monkeypatch, mocker):
