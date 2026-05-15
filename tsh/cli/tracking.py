@@ -13,6 +13,9 @@ import click
 import httpx
 
 from tsh.cli.tray import _is_running, _tracker_url
+from tsh.config import loader
+from tsh.storage import db as db_module
+from tsh.storage import time_entries
 
 
 def _post(path: str, body: dict | None = None) -> dict:
@@ -49,11 +52,33 @@ def _get(path: str) -> dict | list:
     return r.json()
 
 
+def _warn_if_pending() -> None:
+    """Print one-line warning when pending_reconciliation entries exist.
+
+    Talks to SQLite directly (not the tracker) so it works even when the
+    daemon is down. Silent on any error — the warning is best-effort.
+    """
+    try:
+        conn = db_module.connect(loader.config_dir() / "tsh.db")
+    except Exception:
+        return
+    try:
+        n = time_entries.count_pending_reconciliation(conn)
+    except Exception:
+        return
+    finally:
+        conn.close()
+    if n > 0:
+        plural = "s" if n != 1 else ""
+        click.echo(f"⚠ {n} pending reconciliation{plural} — run `tsh reconcile`")
+
+
 @click.command("start")
 @click.argument("ticket")
 @click.option("-m", "--note", default="", help="Worklog note for this entry.")
 def start(ticket: str, note: str) -> None:
     """Start a new active timer for the given ticket."""
+    _warn_if_pending()
     entry = _post("/start", {"ticket_key": ticket, "note": note})
     click.echo(f"Started {entry['ticket_key']} (id={entry['id']})")
 
@@ -63,6 +88,7 @@ def start(ticket: str, note: str) -> None:
 @click.option("-m", "--note", default="", help="Worklog note for the new entry.")
 def switch(ticket: str, note: str) -> None:
     """End the active timer (if any) and start a new one."""
+    _warn_if_pending()
     entry = _post("/switch", {"ticket_key": ticket, "note": note})
     click.echo(f"Switched to {entry['ticket_key']} (id={entry['id']})")
 
@@ -82,6 +108,7 @@ def stop() -> None:
 @click.option("--json", "as_json", is_flag=True, help="Emit JSON.")
 def status(as_json: bool) -> None:
     """Show the current active task and elapsed time."""
+    _warn_if_pending()
     res = _get("/status")
     if as_json:
         click.echo(json_module.dumps(res, indent=2))

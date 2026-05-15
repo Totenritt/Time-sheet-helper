@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import httpx
 import pytest
 import respx
 
 from click.testing import CliRunner
 
+from tsh.cli.main import cli
 from tsh.cli.tracking import start, switch, stop, status, tasks
 
 
@@ -224,3 +227,88 @@ def test_start_tracker_returns_409(runner: CliRunner, isolated_config):
 
     assert result.exit_code == 1
     assert "tracker error (409)" in result.output
+
+
+# ---------------------------------------------------------------------------
+# 11-14. Pending-reconciliation warning tests
+# ---------------------------------------------------------------------------
+
+
+def _insert_pending_entry(config_dir, ticket_key: str) -> None:
+    """Helper: insert one pending-reconciliation entry into the test DB."""
+    from tsh.storage import db as db_module
+    from tsh.storage import time_entries
+    from tsh.core.models import TimeEntry
+
+    conn = db_module.connect(config_dir / "tsh.db")
+    now = datetime.now(timezone.utc)
+    try:
+        eid = time_entries.insert(
+            conn,
+            TimeEntry(
+                id=None, ticket_key=ticket_key,
+                start_at=now - timedelta(hours=1),
+                end_at=now - timedelta(minutes=30),
+                kind="work", note="",
+                jira_worklog_id=None, pushed_at=None,
+                created_at=now, updated_at=now,
+            ),
+        )
+        time_entries.update(conn, eid, pending_reconciliation=1, reconciliation_reason="sleep")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_status_shows_warning_when_pending_reconciliation(isolated_config, mocker):
+    """When the DB has pending entries, status prints the warning before its normal output."""
+    _insert_pending_entry(isolated_config, "X-1")
+
+    mocker.patch("tsh.cli.tracking._is_running", return_value=True)
+    mocker.patch("tsh.cli.tracking._get", return_value={
+        "active": None, "elapsed_seconds": 0,
+        "idle_status": "clear", "idle_started_at": None,
+    })
+
+    result = CliRunner().invoke(cli, ["status"])
+    assert result.exit_code == 0
+    assert "1 pending reconciliation" in result.output
+
+
+def test_status_no_warning_when_clean(isolated_config, mocker):
+    """No warning when no pending entries."""
+    mocker.patch("tsh.cli.tracking._is_running", return_value=True)
+    mocker.patch("tsh.cli.tracking._get", return_value={
+        "active": None, "elapsed_seconds": 0,
+        "idle_status": "clear", "idle_started_at": None,
+    })
+    result = CliRunner().invoke(cli, ["status"])
+    assert result.exit_code == 0
+    assert "pending reconciliation" not in result.output
+
+
+def test_warning_pluralizes_correctly(isolated_config, mocker):
+    """Two pending entries -> 'reconciliations' (plural)."""
+    _insert_pending_entry(isolated_config, "X-1")
+    _insert_pending_entry(isolated_config, "X-2")
+
+    mocker.patch("tsh.cli.tracking._is_running", return_value=True)
+    mocker.patch("tsh.cli.tracking._get", return_value={
+        "active": None, "elapsed_seconds": 0,
+        "idle_status": "clear", "idle_started_at": None,
+    })
+    result = CliRunner().invoke(cli, ["status"])
+    assert "2 pending reconciliations" in result.output
+
+
+def test_warning_appears_on_start_and_switch(isolated_config, mocker):
+    """The warning fires on start and switch too, not just status."""
+    _insert_pending_entry(isolated_config, "X-1")
+
+    mocker.patch("tsh.cli.tracking._is_running", return_value=True)
+    mocker.patch("tsh.cli.tracking._post", return_value={"id": 42, "ticket_key": "SFXS-1"})
+
+    r1 = CliRunner().invoke(cli, ["start", "SFXS-1"])
+    assert "1 pending reconciliation" in r1.output
+    r2 = CliRunner().invoke(cli, ["switch", "SFXS-2"])
+    assert "1 pending reconciliation" in r2.output
