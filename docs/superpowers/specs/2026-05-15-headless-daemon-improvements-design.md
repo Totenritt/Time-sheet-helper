@@ -56,9 +56,10 @@ PRAGMA user_version = 2;
 The Phase-6 `pending_reconciliation` was an in-memory field on `TrackerState`. Persisting it is necessary because the sleep case puts a record into the pending queue *before* the daemon is even running again (see startup recovery, §5.2).
 
 `reconciliation_reason` is a free-text column populated with one of:
-- `'idle'` — the existing post-threshold idle case from Phase 6.
 - `'sleep'` — clock-jump observed in the idle loop (§5.1).
 - `'orphaned_active'` — stale active entry found on daemon startup (§5.2).
+
+Note: routine `pending → clear` idle returns are NOT persisted as pending reconciliations under the no-GUI design — they auto-accept as work, since the user is actively at the keyboard when they return and has the chance to manually `tsh stop` or `tsh switch` if the gap should be classified differently. Only the two cases where the user was demonstrably NOT at the keyboard (machine sleep, daemon-killed-mid-session) get queued for `tsh reconcile`.
 
 `NULL` means "not pending" (combined with `pending_reconciliation = 0`).
 
