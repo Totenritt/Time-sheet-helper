@@ -369,6 +369,25 @@ def test_list_pending_reconciliation_returns_newest_first(db_conn) -> None:
     assert [e.ticket_key for e in result] == ["NEW-3", "MID-2", "OLD-1"]
 
 
+def test_list_pending_reconciliation_with_reason_includes_reason_and_orders_newest_first(db_conn) -> None:
+    base = datetime(2026, 5, 15, 12, 0, tzinfo=UTC)
+    for i, (ticket, reason) in enumerate([("OLD-1", "sleep"), ("NEW-2", "orphaned_active")]):
+        db_conn.execute(
+            """INSERT INTO time_entries
+               (ticket_key, start_at, end_at, kind, created_at, updated_at,
+                pending_reconciliation, reconciliation_reason)
+               VALUES (?, ?, ?, 'work', ?, ?, 1, ?)""",
+            (ticket, base + timedelta(hours=i), base + timedelta(hours=i, minutes=30),
+             base, base, reason),
+        )
+    result = te.list_pending_reconciliation_with_reason(db_conn)
+    # Newest first.
+    assert result[0][0].ticket_key == "NEW-2"
+    assert result[0][1] == "orphaned_active"
+    assert result[1][0].ticket_key == "OLD-1"
+    assert result[1][1] == "sleep"
+
+
 def test_update_allows_reconciliation_columns(db_conn) -> None:
     now = datetime.now(UTC)
     cursor = db_conn.execute(

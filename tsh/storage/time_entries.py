@@ -275,3 +275,21 @@ def list_pending_reconciliation(conn: sqlite3.Connection) -> list[TimeEntry]:
         """
     ).fetchall()
     return [_row_to_entry(row) for row in rows]
+
+
+def list_pending_reconciliation_with_reason(
+    conn: sqlite3.Connection,
+) -> list[tuple[TimeEntry, str | None]]:
+    """Return (entry, reconciliation_reason) tuples for entries with pending_reconciliation = 1.
+
+    Ordered by start_at DESC. Single query — no N+1 — because reconciliation_reason
+    isn't on the TimeEntry dataclass and `tsh reconcile` needs to display it.
+    """
+    rows = conn.execute(
+        """
+        SELECT * FROM time_entries
+        WHERE pending_reconciliation = 1
+        ORDER BY start_at DESC
+        """
+    ).fetchall()
+    return [(_row_to_entry(row), row["reconciliation_reason"]) for row in rows]
