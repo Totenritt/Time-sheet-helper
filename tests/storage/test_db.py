@@ -42,12 +42,12 @@ def _row(conn: sqlite3.Connection, sql: str, params: tuple = ()):
 
 
 class TestMigrationRunner:
-    def test_fresh_db_user_version_is_1(self, tmp_path):
-        """Opening a fresh db runs migration 001 and sets user_version=1."""
+    def test_fresh_db_user_version_is_current(self, tmp_path):
+        """Opening a fresh db runs all migrations and sets user_version to the latest."""
         conn = db.connect(tmp_path / "a.db")
         try:
             version = conn.execute("PRAGMA user_version").fetchone()[0]
-            assert version == 1
+            assert version == 2
         finally:
             conn.close()
 
@@ -67,14 +67,14 @@ class TestMigrationRunner:
             conn.close()
 
     def test_migration_is_idempotent(self, tmp_path):
-        """Opening the same file twice leaves version at 1, no error."""
+        """Opening the same file twice leaves version at latest, no error."""
         path = tmp_path / "c.db"
         conn1 = db.connect(path)
         conn1.close()
         conn2 = db.connect(path)
         try:
             version = conn2.execute("PRAGMA user_version").fetchone()[0]
-            assert version == 1
+            assert version == 2
         finally:
             conn2.close()
 
@@ -277,3 +277,33 @@ def test_convert_datetime_rejects_naive_stored_value(tmp_path):
             conn.execute("SELECT start_at FROM time_entries").fetchone()
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Migration 002 — reconciliation columns
+# ---------------------------------------------------------------------------
+
+
+def test_migration_002_adds_reconciliation_columns(tmp_path: Path) -> None:
+    conn = db.connect(tmp_path / "tsh.db")
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(time_entries)")}
+    assert "reconciliation_reason" in cols
+    assert "pending_reconciliation" in cols
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    assert version >= 2
+
+
+def test_migration_002_pending_reconciliation_defaults_zero(tmp_path: Path) -> None:
+    conn = db.connect(tmp_path / "tsh.db")
+    now = datetime.now(timezone.utc)
+    conn.execute(
+        """INSERT INTO time_entries
+           (ticket_key, start_at, kind, created_at, updated_at)
+           VALUES ('X-1', ?, 'work', ?, ?)""",
+        (now, now, now),
+    )
+    row = conn.execute(
+        "SELECT pending_reconciliation, reconciliation_reason FROM time_entries"
+    ).fetchone()
+    assert row["pending_reconciliation"] == 0
+    assert row["reconciliation_reason"] is None

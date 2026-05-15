@@ -20,6 +20,7 @@ from typing import Iterator
 # The runner applies a migration only when PRAGMA user_version < target.
 MIGRATIONS: list[tuple[int, str]] = [
     (1, "001_initial.sql"),
+    (2, "002_reconciliation_reason.sql"),
 ]
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
