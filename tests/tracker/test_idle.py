@@ -452,7 +452,7 @@ def test_sleep_detected_with_active_timer_closes_at_last_input(
 def test_normal_tick_does_not_trigger_sleep_handler(
     state, fake_provider, fixed_clock
 ) -> None:
-    provider, set_idle = fake_provider
+    _, set_idle = fake_provider
     clock, set_now = fixed_clock
     _insert_active(state, "SFXS-7", datetime(2026, 5, 15, 9, 0, tzinfo=timezone.utc))
 
@@ -511,10 +511,13 @@ def test_sleep_during_idle_pending_updates_reason_to_sleep(
 
     conn = state._connection()
     row = conn.execute(
-        "SELECT end_at, reconciliation_reason FROM time_entries WHERE ticket_key = 'SFXS-99'"
+        "SELECT end_at, pending_reconciliation, reconciliation_reason FROM time_entries WHERE ticket_key = 'SFXS-99'"
     ).fetchone()
     assert row["reconciliation_reason"] == "sleep"
     assert row["end_at"] == datetime(2026, 5, 14, 12, 4, 0, tzinfo=timezone.utc)
+    # Flag should still be set after sleep-during-pending.
+    assert row["pending_reconciliation"] == 1
+    assert loop.pending_reconciliation is True
 
 
 def test_sleep_sets_pending_reconciliation_flag(

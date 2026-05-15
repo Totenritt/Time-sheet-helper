@@ -151,8 +151,8 @@ class IdleLoop:
 
         if self.state.idle.status == "clear":
             if active is not None and idle_seconds >= threshold_seconds:
-                # Transition to pending. idle_started_at = now - idle_seconds.
-                idle_started_at = now - timedelta(seconds=idle_seconds)
+                # Transition to pending. idle_started_at == last_input_at.
+                idle_started_at = last_input_at
                 # Clamp idle_started_at to active.start_at so reconcile_idle's
                 # invariants hold even if the user was already idle when they
                 # started the timer (rare, but possible if the tracker boots
@@ -231,9 +231,13 @@ class IdleLoop:
         try:
             with db_module.tx(conn):
                 closed = time_entries.end_active(conn, close_at)
-                assert closed is not None
+                if closed is None:
+                    logger.error(
+                        "sleep-handler: end_active returned None despite active timer; aborting"
+                    )
+                    return
                 time_entries.update(
-                    conn, closed.id,  # type: ignore[arg-type]
+                    conn, closed.id,
                     pending_reconciliation=1,
                     reconciliation_reason="sleep",
                 )
