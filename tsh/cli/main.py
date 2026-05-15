@@ -4,7 +4,7 @@ from __future__ import annotations
 import click
 
 from tsh import __version__
-from tsh.cli import auth, config_cmd, hook, push as push_cmd, reconcile as reconcile_cmd, review, tracking
+from tsh.cli import auth, autostart, config_cmd, hook, push as push_cmd, reconcile as reconcile_cmd, review, tracking
 from tsh.cli import tray as tray_cmd
 
 
@@ -30,3 +30,4 @@ cli.add_command(tracking.tasks)
 cli.add_command(reconcile_cmd.reconcile)
 cli.add_command(tray_cmd.tray)
 cli.add_command(tray_cmd.quit_cmd, name="quit")
+cli.add_command(autostart.autostart_group, name="autostart")
