@@ -156,7 +156,8 @@ def update(conn: sqlite3.Connection, entry_id: int, **fields: Any) -> TimeEntry:
     """Update arbitrary fields on the given entry. Sets updated_at to now-UTC.
 
     Allowed fields: ticket_key, start_at, end_at, note, kind, jira_worklog_id,
-    pushed_at. Attempting to update id, created_at, or updated_at directly
+    pushed_at, pending_reconciliation, reconciliation_reason. Attempting to
+    update id, created_at, or updated_at directly
     raises ValueError. Returns the updated entry.
 
     Raises ValueError if entry_id does not exist.
