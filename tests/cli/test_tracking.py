@@ -359,6 +359,7 @@ def test_switch_from_branch_no_match_exits_silently(branch, isolated_config, moc
     result = CliRunner().invoke(cli, ["switch", "--from-branch"])
     assert result.exit_code == 0
     post_mock.assert_not_called()
+    assert f"no ticket in branch '{branch}'" in result.output
 
 
 def test_switch_from_branch_no_repo_exits_silently(isolated_config, mocker):
@@ -389,3 +390,11 @@ def test_switch_from_branch_tracker_not_running_silent(isolated_config, mocker):
     result = CliRunner().invoke(cli, ["switch", "--from-branch"])
     assert result.exit_code == 0
     post_mock.assert_not_called()
+    assert "tracker not running" in result.output
+
+
+def test_switch_from_branch_with_positional_is_usage_error(isolated_config):
+    """--from-branch and a positional TICKET are mutually exclusive."""
+    result = CliRunner().invoke(cli, ["switch", "--from-branch", "SFXS-1234"])
+    assert result.exit_code != 0
+    assert "from-branch" in result.output.lower() or "exclusive" in result.output.lower()
