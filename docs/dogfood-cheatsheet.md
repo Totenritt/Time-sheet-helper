@@ -1,18 +1,56 @@
-# Dogfood cheat-sheet — 2026-04-27
+# Dogfood cheat-sheet — 2026-05-15
 
-Phases 1-6 of the plan are merged on `master`. The CLI works end-to-end (manual log + push) and the live-timer daemon (`tsh tray`) works. The GUI is **not built yet** — interactions are CLI-only or via the system tray menu.
+Phases 1–8 of the plan are merged on `master`. The CLI works end-to-end (manual log + push), the live-timer daemon (`tsh tray`) works, autostart and git-hook switching ship in Phase 8, and sleep/idle reconciliation is fully surfaced. The GUI was dropped in the Phase 7–8 revision — interactions are CLI-only or via the system tray menu.
 
 ## Set up
 
 ```powershell
 cd "C:\Users\Casey Luo\Documents\SWS\timesheet_helper"
 uv sync --all-extras                     # one-time / after pulling new commits
-uv run pytest -q                         # confirm 311 still pass
+uv run pytest -q                         # confirm 374 still pass
 ```
 
 `uv run <cmd>` invokes the project venv automatically. All `tsh` commands below
 can be prefixed with `uv run` (e.g. `uv run tsh status`) instead of activating
 the venv. If you prefer to activate, `.\.venv\Scripts\activate` still works.
+
+## Background install (one-time)
+
+Make the tracker behave like a native Windows app — start at login, no terminal needed:
+
+```powershell
+tsh autostart enable                     # writes Startup shortcut + starts daemon now
+tsh autostart status                     # confirm enabled + daemon running
+tsh autostart disable                    # removes the shortcut (leaves a running daemon alone)
+```
+
+After `enable`, the tray icon appears on every login automatically — no terminal needed. To stop a running daemon, use `tsh quit`.
+
+For headless launch in a single session (no autostart):
+
+```powershell
+tsh tray --detach                        # spawns via pythonw.exe, no console window, exits parent
+```
+
+## Git auto-switch (per-repo)
+
+Install a git hook so `git checkout` (or your `gco` alias) auto-switches the timer when a branch name contains a Jira ticket key:
+
+```powershell
+cd C:\path\to\some-project
+tsh hook install                         # writes .git/hooks/post-checkout
+tsh hook status                          # confirm
+```
+
+After install, `git checkout feature/SFXS-1234-fix-bug` silently calls `tsh switch SFXS-1234`. Branches without a matching ticket key (e.g. `chore/cleanup`) produce a single stderr line and do nothing — the hook never blocks checkout.
+
+Override the regex for projects with a different ticket convention:
+
+```powershell
+tsh config set git.branch_pattern '<your-regex>'
+```
+
+Manual switching (`tsh switch SFXS-9999`) still works in repos that don't have the hook installed.
 
 ## One-time auth (skip if already done)
 
@@ -38,16 +76,15 @@ tsh push --dry-run                       # MUST: verify started has +1100/+1000
 tsh push                                 # real push to Jira
 ```
 
-### B. Live timer (Phase 6 — new, untested in real use)
+### B. Live timer (Phase 6+)
 
-In **terminal 1** (this one blocks):
+Start the daemon (or rely on autostart — see "Background install" above):
 
 ```powershell
-tsh tray                                 # daemon starts, tray icon appears
-                                         # leave this terminal open
+tsh tray --detach                        # headless: no console window
 ```
 
-In **terminal 2** (or three):
+In a terminal:
 
 ```powershell
 tsh start SFXS-1073 -m "auth refactor"
@@ -74,27 +111,41 @@ tsh quit                                 # or right-click tray icon → Quit
 ## What the tray menu does
 
 - **(top, greyed out):** current task + elapsed (`tsh — SFXS-1073 — 1h 15m`)
-- **Switch task...** — currently a no-op log line (GUI is Phase 7; until then, use `tsh switch` from a terminal)
+- **Switch task...** — use `tsh switch` from a terminal
 - **Pause** — same as `tsh stop`
-- **Show main window** — no-op for now (GUI is Phase 7)
 - **Quit** — graceful shutdown
 
-## Idle detection (background)
+## Idle / sleep / overnight gaps
 
-- Every 30s the daemon checks Win32 `GetLastInputInfo`
-- If you've been idle ≥ 10m AND have an active timer → state goes to `pending`
-- When you return → state clears + `pending_reconciliation = True`
-- **No reconciliation modal exists yet** (Phase 7 territory). For now the flag is set and not surfaced; the active timer keeps running through the gap. If you want to test idle behaviour, you'll see it in the JSON: `tsh status --json` shows `idle_status` and `idle_started_at`.
-- If you go idle past 4h (default `time.max_idle_minutes_before_autostop`) the timer auto-stops at the moment idle started. You'll see a closed entry in `tsh review` ending at that time.
+The daemon polls `GetLastInputInfo` every 30s plus watches for wall-clock jumps (machine sleep / hibernate). It also detects orphaned active timers on startup (e.g. from a previous session that crashed).
 
-To test idle behaviour faster:
+In all three cases, the affected entry is closed at the user's last keyboard/mouse input before the gap and flagged for reconciliation. On next interaction you'll see:
+
+```
+⚠ 1 pending reconciliation — run `tsh reconcile`
+```
+
+Walk through it interactively:
 
 ```powershell
-tsh quit                                 # stop the daemon first
+tsh reconcile                            # walk all pending entries
+tsh reconcile <id>                       # resolve a single entry
+tsh reconcile --json                     # list pending as JSON, no prompts (for scripts)
+```
+
+For each entry you choose:
+- `[s]` Same work — extend the original entry through the gap
+- `[d]` Different ticket — close original, log the gap separately
+- `[n]` Not work — close original, mark the gap as non-work
+- `[k]` Skip — leave the flag set; resurfaces next run
+
+To test idle detection faster:
+
+```powershell
+tsh quit                                 # stop daemon first
 tsh config set time.idle_threshold_minutes 1
-tsh tray                                 # restart with the new threshold
-# now any 1-minute idle period flips state to pending
-tsh config set time.idle_threshold_minutes 10   # restore default after testing
+tsh tray --detach                        # restart with the new threshold
+tsh config set time.idle_threshold_minutes 10   # restore after testing
 ```
 
 ## Watch-outs (things to flag if they go wrong)
@@ -108,7 +159,7 @@ tsh config set time.idle_threshold_minutes 10   # restore default after testing
 | `tsh auth test` fails with "not configured" | Check `tsh config get jira.base_url` doesn't have trailing slash. |
 | `tsh tray` says "tracker already running" but it isn't | Stale daemon on port 42024 — `tsh quit`, or change port via `tsh config set app.http_port <n>`. |
 | Tray icon doesn't appear on Windows | Pillow/pystray issue. The HTTP API still works. |
-| Manual log says "no active timer" but tray claims one | Tracker's in-memory state went stale — restart it. Will be fixed when 60s flush + restart-on-launch logic ships. |
+| `tsh status` shows `⚠ N pending reconciliations` | Daemon detected idle return, machine sleep, or recovered an orphaned timer. Run `tsh reconcile`. |
 
 ## Where state lives
 
@@ -124,6 +175,7 @@ tsh config get time.idle_threshold_minutes
 tsh status --json                        # current active + idle state
 tsh tasks --json                         # picker contents
 tsh review --day yesterday --json        # raw entry data
+tsh reconcile --json                     # pending reconciliation entries (if any)
 ```
 
 To browse the DB directly:
@@ -142,8 +194,10 @@ git log --oneline                        # find the bad commit
 git revert <sha>                         # creates a new revert commit
 ```
 
-Or just file the issue — there are 19 commits, each fairly self-contained.
+Or just file the issue — each commit is fairly self-contained.
 
 ## Where to resume building
 
-`docs/plans/2026-04-27-timesheet-helper.md` has the canonical progress and next-task pointer. Phase 7 is the GUI (4 tasks) — the reconciliation modal lands there, plus the today view, picker popover, and review/push UI. Phase 8 is packaging (`pyinstaller` to a single `.exe`).
+Phases 7 and 8 (daemon hardening + git switching) shipped on 2026-05-15. The GUI was dropped in the same revision — see `docs/superpowers/specs/2026-05-15-headless-daemon-improvements-design.md` for that decision.
+
+Phase 9 (PyInstaller packaging — single-binary build for `tsh.exe` + `tsh-tray.exe`) is the remaining work. See `docs/plans/2026-05-15-headless-daemon-improvements.md` for the implementation breakdown.
