@@ -4,7 +4,7 @@ from __future__ import annotations
 import click
 
 from tsh import __version__
-from tsh.cli import auth, config_cmd, push as push_cmd, reconcile as reconcile_cmd, review, tracking
+from tsh.cli import auth, config_cmd, hook, push as push_cmd, reconcile as reconcile_cmd, review, tracking
 from tsh.cli import tray as tray_cmd
 
 
@@ -16,6 +16,7 @@ def cli() -> None:
 
 cli.add_command(auth.auth_group, name="auth")
 cli.add_command(config_cmd.config_group, name="config")
+cli.add_command(hook.hook_group, name="hook")
 cli.add_command(review.log)
 cli.add_command(review.review)
 cli.add_command(review.edit)
