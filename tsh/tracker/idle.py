@@ -243,6 +243,7 @@ class IdleLoop:
 
         self.state.refresh()
         self.state.idle = IdleState(status="clear")
+        self.pending_reconciliation = True
         logger.info(
             "sleep detected: closed active %s at %s; queued for reconciliation",
             active.ticket_key, close_at.isoformat(),

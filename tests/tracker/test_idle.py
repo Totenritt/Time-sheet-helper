@@ -515,3 +515,27 @@ def test_sleep_during_idle_pending_updates_reason_to_sleep(
     ).fetchone()
     assert row["reconciliation_reason"] == "sleep"
     assert row["end_at"] == datetime(2026, 5, 14, 12, 4, 0, tzinfo=timezone.utc)
+
+
+def test_sleep_sets_pending_reconciliation_flag(
+    state, fake_provider, fixed_clock
+) -> None:
+    _, set_idle = fake_provider
+    _, set_now = fixed_clock
+    _insert_active(state, "SFXS-FLAG", datetime(2026, 5, 14, 21, 0, tzinfo=timezone.utc))
+
+    # Baseline tick.
+    set_now(datetime(2026, 5, 14, 22, 0, 0, tzinfo=timezone.utc))
+    set_idle(10.0)
+    loop = _make_loop(state, fake_provider, fixed_clock)
+    loop.tick()
+    assert loop.pending_reconciliation is False
+
+    # Sleep tick.
+    set_now(datetime(2026, 5, 15, 6, 0, 0, tzinfo=timezone.utc))
+    set_idle(5.0)
+    loop.tick()
+
+    assert loop.pending_reconciliation is True, (
+        "sleep handler must set in-memory flag like pending->clear does"
+    )
