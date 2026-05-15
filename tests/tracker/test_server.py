@@ -527,3 +527,118 @@ class TestShutdown:
         resp = client.post("/shutdown")
         assert resp.status_code in (404, 405)  # route not registered
 
+
+# ---------------------------------------------------------------------------
+# /idle/return — pending_reconciliation flag clearing (Task 20.6)
+# ---------------------------------------------------------------------------
+
+
+class TestIdleReturnClearsPendingFlag:
+    """POST /idle/return must clear pending_reconciliation=0 on the original row."""
+
+    def _make_active_entry(self, state: TrackerState, ticket_key: str) -> int:
+        """Insert an active entry and return its id."""
+        from datetime import timedelta
+        conn = state._connection()
+        now = datetime.now(UTC)
+        start = now - timedelta(minutes=30)
+        entry = TimeEntry(
+            id=None,
+            ticket_key=ticket_key,
+            start_at=start,
+            end_at=None,
+            kind="work",
+            note="",
+            jira_worklog_id=None,
+            pushed_at=None,
+            created_at=start,
+            updated_at=start,
+        )
+        eid = time_entries.insert(conn, entry)
+        conn.commit()
+        state.refresh()
+        return eid
+
+    def _flag_pending(self, state: TrackerState, entry_id: int) -> None:
+        """Pre-flag a row as pending_reconciliation=1 (simulating sleep/recovery path)."""
+        conn = state._connection()
+        time_entries.update(
+            conn, entry_id,
+            pending_reconciliation=1,
+            reconciliation_reason="idle",
+        )
+        conn.commit()
+
+    def _set_idle_pending(self, state: TrackerState) -> None:
+        """Set state.idle to pending with a safe started_at."""
+        from datetime import timedelta
+        state.refresh()
+        active = state.get_active()
+        if active is not None:
+            idle_start = active.start_at
+        else:
+            idle_start = datetime.now(UTC) - timedelta(seconds=30)
+        state.idle = IdleState(status="pending", started_at=idle_start)
+
+    def test_not_work_choice_clears_flag(self, db_path: Path) -> None:
+        """22. choice='not_work': original row's pending_reconciliation must be cleared."""
+        state = TrackerState(db_path=db_path, jira_client_factory=lambda: None)
+        try:
+            eid = self._make_active_entry(state, "SFXS-NW")
+            self._flag_pending(state, eid)
+            self._set_idle_pending(state)
+
+            client = TestClient(create_app(state))
+            r = client.post("/idle/return", json={"choice": "not_work"})
+            assert r.status_code == 200, r.text
+
+            conn = state._connection()
+            row = conn.execute(
+                "SELECT pending_reconciliation, reconciliation_reason FROM time_entries WHERE id = ?",
+                (eid,),
+            ).fetchone()
+            assert row["pending_reconciliation"] == 0
+            assert row["reconciliation_reason"] is None
+            assert time_entries.count_pending_reconciliation(conn) == 0
+        finally:
+            state.close()
+
+    def test_same_choice_clears_flag(self, db_path: Path) -> None:
+        """23. choice='same': original row's flag must be cleared even though no entries are written."""
+        state = TrackerState(db_path=db_path, jira_client_factory=lambda: None)
+        try:
+            eid = self._make_active_entry(state, "SFXS-SM")
+            self._flag_pending(state, eid)
+            self._set_idle_pending(state)
+
+            client = TestClient(create_app(state))
+            r = client.post("/idle/return", json={"choice": "same"})
+            assert r.status_code == 200, r.text
+
+            conn = state._connection()
+            row = conn.execute(
+                "SELECT pending_reconciliation, reconciliation_reason FROM time_entries WHERE id = ?",
+                (eid,),
+            ).fetchone()
+            assert row["pending_reconciliation"] == 0
+            assert row["reconciliation_reason"] is None
+            assert time_entries.count_pending_reconciliation(conn) == 0
+        finally:
+            state.close()
+
+    def test_clears_flag_idempotent_when_flag_already_zero(self, db_path: Path) -> None:
+        """24. Rows with pending_reconciliation=0: clearing again is idempotent (no error)."""
+        state = TrackerState(db_path=db_path, jira_client_factory=lambda: None)
+        try:
+            self._make_active_entry(state, "SFXS-IDP")
+            # Do NOT flag the row — it stays at default 0.
+            self._set_idle_pending(state)
+
+            client = TestClient(create_app(state))
+            r = client.post("/idle/return", json={"choice": "not_work"})
+            assert r.status_code == 200, r.text
+            # Should complete cleanly with count still 0.
+            assert time_entries.count_pending_reconciliation(state._connection()) == 0
+        finally:
+            state.close()
+

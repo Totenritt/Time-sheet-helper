@@ -178,6 +178,18 @@ class TrackerState:
         except Exception:
             # Re-raise so the HTTP layer surfaces it; idle stays pending so user can retry.
             raise
+
+        # Clear pending_reconciliation on the original entry — symmetric with the
+        # sleep handler / startup recovery paths that flag rows in storage.
+        # Idempotent: clearing 0→0 is harmless; clears 1→0 when flagged by those paths.
+        if active.id is not None:
+            time_entries.update(
+                conn, active.id,
+                pending_reconciliation=0,
+                reconciliation_reason=None,
+            )
+            conn.commit()
+
         self.idle = IdleState()
         self.refresh()
         return new_entries
