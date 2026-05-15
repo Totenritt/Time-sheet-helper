@@ -31,6 +31,9 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "autostart": False,
         "http_port": 42024,
     },
+    "git": {
+        "branch_pattern": r"[A-Z][A-Z0-9_]+-\d+",
+    },
 }
 
 

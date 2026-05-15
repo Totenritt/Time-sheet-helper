@@ -7,6 +7,8 @@ app first." and exit non-zero.
 
 from __future__ import annotations
 import json as json_module
+import re
+import subprocess
 import sys
 
 import click
@@ -73,6 +75,33 @@ def _warn_if_pending() -> None:
         click.echo(f"⚠ {n} pending reconciliation{plural} — run `tsh reconcile`")
 
 
+def _current_branch() -> str | None:
+    """Return current git branch name, or None if not in a repo / git missing / detached HEAD."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=".",
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+    if out.returncode != 0:
+        return None
+    name = out.stdout.strip()
+    if not name or name == "HEAD":
+        return None
+    return name
+
+
+def _ticket_from_branch(branch: str) -> str | None:
+    """Extract the first ticket key matching the configured branch_pattern."""
+    pattern = loader.load()["git"]["branch_pattern"]
+    m = re.search(pattern, branch)
+    return m.group(0) if m else None
+
+
 @click.command("start")
 @click.argument("ticket")
 @click.option("-m", "--note", default="", help="Worklog note for this entry.")
@@ -84,10 +113,34 @@ def start(ticket: str, note: str) -> None:
 
 
 @click.command("switch")
-@click.argument("ticket")
+@click.argument("ticket", required=False)
 @click.option("-m", "--note", default="", help="Worklog note for the new entry.")
-def switch(ticket: str, note: str) -> None:
+@click.option("--from-branch", "from_branch", is_flag=True,
+              help="Extract ticket key from current git branch (no positional needed).")
+def switch(ticket: str | None, note: str, from_branch: bool) -> None:
     """End the active timer (if any) and start a new one."""
+    if from_branch:
+        if ticket is not None:
+            raise click.UsageError("--from-branch is exclusive of the positional TICKET")
+        branch = _current_branch()
+        if branch is None:
+            return  # not a repo / detached / git missing — silent
+        parsed = _ticket_from_branch(branch)
+        if parsed is None:
+            click.echo(f"no ticket in branch '{branch}'", err=True)
+            return
+        if not _is_running():
+            click.echo("tracker not running — start with `tsh tray`", err=True)
+            return
+        current = _get("/status")
+        active = current.get("active") if isinstance(current, dict) else None
+        if active and active.get("ticket_key") == parsed:
+            return  # already on this ticket — idempotent
+        ticket = parsed
+
+    if ticket is None:
+        raise click.UsageError("missing TICKET (or pass --from-branch)")
+
     _warn_if_pending()
     entry = _post("/switch", {"ticket_key": ticket, "note": note})
     click.echo(f"Switched to {entry['ticket_key']} (id={entry['id']})")

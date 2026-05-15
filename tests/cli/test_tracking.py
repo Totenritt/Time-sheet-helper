@@ -312,3 +312,80 @@ def test_warning_appears_on_start_and_switch(isolated_config, mocker):
     assert "1 pending reconciliation" in r1.output
     r2 = CliRunner().invoke(cli, ["switch", "SFXS-2"])
     assert "1 pending reconciliation" in r2.output
+
+
+# ---------------------------------------------------------------------------
+# 15+. tsh switch --from-branch
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "branch,expected_ticket",
+    [
+        ("feature/SFXS-1234-fix", "SFXS-1234"),
+        ("SFXS-1234", "SFXS-1234"),
+        ("feature/SFXS-1234/SFXS-5678-rebase", "SFXS-1234"),  # first match wins
+        ("bugfix/ABC-9-fix", "ABC-9"),
+    ],
+)
+def test_switch_from_branch_parses_and_posts(
+    branch, expected_ticket, isolated_config, mocker
+):
+    mocker.patch("tsh.cli.tracking._current_branch", return_value=branch)
+    mocker.patch("tsh.cli.tracking._is_running", return_value=True)
+    mocker.patch("tsh.cli.tracking._get", return_value={
+        "active": None, "elapsed_seconds": 0,
+        "idle_status": "clear", "idle_started_at": None,
+    })
+    post_mock = mocker.patch("tsh.cli.tracking._post",
+                              return_value={"ticket_key": expected_ticket, "id": 99})
+    result = CliRunner().invoke(cli, ["switch", "--from-branch"])
+    assert result.exit_code == 0, result.output
+    post_mock.assert_called_once()
+    args = post_mock.call_args
+    # _post signature: _post(path, body=None)
+    assert args.args[0] == "/switch"
+    posted_body = args.args[1] if len(args.args) > 1 else args.kwargs.get("body", {})
+    assert posted_body["ticket_key"] == expected_ticket
+
+
+@pytest.mark.parametrize(
+    "branch",
+    ["sfxs-1234", "chore/cleanup", "release/2026-05-15", "main", "master"],
+)
+def test_switch_from_branch_no_match_exits_silently(branch, isolated_config, mocker):
+    mocker.patch("tsh.cli.tracking._current_branch", return_value=branch)
+    mocker.patch("tsh.cli.tracking._is_running", return_value=True)
+    post_mock = mocker.patch("tsh.cli.tracking._post")
+    result = CliRunner().invoke(cli, ["switch", "--from-branch"])
+    assert result.exit_code == 0
+    post_mock.assert_not_called()
+
+
+def test_switch_from_branch_no_repo_exits_silently(isolated_config, mocker):
+    mocker.patch("tsh.cli.tracking._current_branch", return_value=None)
+    post_mock = mocker.patch("tsh.cli.tracking._post")
+    result = CliRunner().invoke(cli, ["switch", "--from-branch"])
+    assert result.exit_code == 0
+    post_mock.assert_not_called()
+
+
+def test_switch_from_branch_idempotent_when_already_active(isolated_config, mocker):
+    mocker.patch("tsh.cli.tracking._current_branch", return_value="feature/SFXS-1234-x")
+    mocker.patch("tsh.cli.tracking._is_running", return_value=True)
+    mocker.patch("tsh.cli.tracking._get",
+                  return_value={"active": {"ticket_key": "SFXS-1234"},
+                                "elapsed_seconds": 60, "idle_status": "clear",
+                                "idle_started_at": None})
+    post_mock = mocker.patch("tsh.cli.tracking._post")
+    result = CliRunner().invoke(cli, ["switch", "--from-branch"])
+    assert result.exit_code == 0
+    post_mock.assert_not_called()
+
+
+def test_switch_from_branch_tracker_not_running_silent(isolated_config, mocker):
+    mocker.patch("tsh.cli.tracking._current_branch", return_value="feature/SFXS-1234-x")
+    mocker.patch("tsh.cli.tracking._is_running", return_value=False)
+    post_mock = mocker.patch("tsh.cli.tracking._post")
+    result = CliRunner().invoke(cli, ["switch", "--from-branch"])
+    assert result.exit_code == 0
+    post_mock.assert_not_called()
