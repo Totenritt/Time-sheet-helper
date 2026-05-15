@@ -1,7 +1,10 @@
 """tsh tray / tsh quit — start and stop the tracker process."""
 
 from __future__ import annotations
+import os
+import subprocess
 import sys
+from pathlib import Path
 
 import click
 import httpx
@@ -24,12 +27,48 @@ def _is_running() -> bool:
         return False
 
 
+def _windowless_python() -> str:
+    """Return path to the windowless interpreter for detached spawning.
+
+    Dev mode: pythonw.exe next to current python.exe.
+    Frozen (PyInstaller): sibling tsh-tray.exe.
+    """
+    if getattr(sys, "frozen", False):
+        here = Path(sys.executable).parent
+        candidate = here / "tsh-tray.exe"
+        if candidate.exists():
+            return str(candidate)
+        return sys.executable
+    py = Path(sys.executable)
+    pyw = py.with_name("pythonw.exe")
+    if pyw.exists():
+        return str(pyw)
+    return "pythonw.exe"
+
+
 @click.command("tray")
-def tray() -> None:
+@click.option("--detach", is_flag=True, help="Re-spawn windowless and exit; tray runs detached.")
+def tray(detach: bool) -> None:
     """Start the tracker (idempotent — exits cleanly if already running)."""
     if _is_running():
         click.echo("tracker already running")
         return
+
+    if detach:
+        windowless = _windowless_python()
+        if getattr(sys, "frozen", False):
+            cmd = [windowless]
+        else:
+            cmd = [windowless, "-m", "tsh", "tray"]
+        subprocess.Popen(
+            cmd,
+            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
+            close_fds=True,
+            cwd=os.getcwd(),
+        )
+        click.echo("tracker starting (detached)")
+        return
+
     # Lazy import so `tsh --help` doesn't spin up uvicorn / pystray.
     from tsh.tracker import runner
     runner.run()

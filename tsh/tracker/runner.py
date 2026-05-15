@@ -10,6 +10,8 @@ Public entry point: ``run()``.
 from __future__ import annotations
 import asyncio
 import logging
+import logging.handlers
+import sys
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,6 +36,32 @@ FLUSH_INTERVAL_SECONDS = 60.0
 
 def _db_path() -> Path:
     return loader.config_dir() / "tsh.db"
+
+
+def _setup_file_logging() -> None:
+    """Add a rotating-file handler under ~/.tsh/logs/ when stdout is not a TTY.
+
+    Foreground `tsh tray` keeps console logging as today. Detached / packaged
+    runs pipe to ~/.tsh/logs/tsh-tray.log (1 MB rotation, 3 backups).
+    """
+    if sys.stdout.isatty():
+        return
+    log_dir = loader.config_dir() / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    handler = logging.handlers.RotatingFileHandler(
+        log_dir / "tsh-tray.log",
+        maxBytes=1024 * 1024,
+        backupCount=3,
+        encoding="utf-8",
+    )
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    root = logging.getLogger()
+    if not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers):
+        root.addHandler(handler)
+    if root.level == logging.NOTSET or root.level > logging.INFO:
+        root.setLevel(logging.INFO)
 
 
 def _build_jira_client_factory() -> Callable[[], JiraClient | None]:
@@ -168,6 +196,7 @@ async def _run_async(state: TrackerState, http_port: int) -> None:
 
 def run() -> None:
     """Synchronous entry point. Reads config, builds state, dispatches the async loop."""
+    _setup_file_logging()
     cfg = loader.load()
     http_port = int(cfg["app"]["http_port"])
     state = TrackerState(

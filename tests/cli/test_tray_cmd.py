@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import httpx
 import pytest
 import respx
@@ -82,3 +83,43 @@ def test_quit_tracker_not_running(runner: CliRunner, isolated_config):
 
     assert result.exit_code == 0, result.output
     assert "tracker not running" in result.output
+
+
+# ---------------------------------------------------------------------------
+# 20.9 tsh tray --detach tests
+# ---------------------------------------------------------------------------
+
+def test_tray_detach_uses_pythonw_and_no_console(tmp_path, monkeypatch, mocker):
+    monkeypatch.setenv("TSH_CONFIG_DIR", str(tmp_path))
+    mocker.patch("tsh.cli.tray._is_running", return_value=False)
+    popen_mock = mocker.patch("subprocess.Popen")
+
+    from click.testing import CliRunner
+    from tsh.cli.main import cli
+    result = CliRunner().invoke(cli, ["tray", "--detach"])
+    assert result.exit_code == 0
+    popen_mock.assert_called_once()
+    args, kwargs = popen_mock.call_args
+    cmd = args[0]
+    # Either pythonw.exe (dev) or tsh-tray.exe (frozen, future).
+    assert cmd[0].lower().endswith("pythonw.exe") or cmd[0].lower().endswith("tsh-tray.exe")
+    if cmd[0].lower().endswith("pythonw.exe"):
+        # In dev mode we should be running -m tsh tray.
+        assert "-m" in cmd and "tsh" in cmd and "tray" in cmd
+    import subprocess as sp
+    flags = kwargs.get("creationflags", 0)
+    assert flags & sp.CREATE_NO_WINDOW
+    assert flags & sp.DETACHED_PROCESS
+
+
+def test_tray_detach_noop_when_already_running(tmp_path, monkeypatch, mocker):
+    monkeypatch.setenv("TSH_CONFIG_DIR", str(tmp_path))
+    mocker.patch("tsh.cli.tray._is_running", return_value=True)
+    popen_mock = mocker.patch("subprocess.Popen")
+
+    from click.testing import CliRunner
+    from tsh.cli.main import cli
+    result = CliRunner().invoke(cli, ["tray", "--detach"])
+    assert result.exit_code == 0
+    assert "already running" in result.output
+    popen_mock.assert_not_called()
