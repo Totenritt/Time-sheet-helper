@@ -4,15 +4,51 @@ Phases 1–8 of the plan are merged on `master`. The CLI works end-to-end (manua
 
 ## Set up
 
+Pick **one** of the two install routes below. The first is what you want
+unless you plan to hack on tsh itself.
+
+### Option A — Install system-wide (recommended for daily users)
+
+`uv tool install` puts `tsh.exe` in `%USERPROFILE%\.local\bin` (on user
+PATH), so the command works from **any** terminal, from GUI git clients
+(GitLens, SourceTree, VS Code Git), and from the Windows Startup shortcut
+— no activated venv required.
+
 ```powershell
-cd "C:\Users\Casey Luo\Documents\SWS\timesheet_helper"
-uv sync --all-extras                     # one-time / after pulling new commits
-uv run pytest -q                         # confirm 374 still pass
+# Install uv once if you don't have it:
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Then from a fresh terminal (or one where `uv` is already on PATH):
+cd "C:\path\to\timesheet_helper"
+uv tool install --editable .             # tsh.exe → %USERPROFILE%\.local\bin
+uv tool update-shell                     # one-time: adds ~\.local\bin to PATH if missing
 ```
 
-`uv run <cmd>` invokes the project venv automatically. All `tsh` commands below
-can be prefixed with `uv run` (e.g. `uv run tsh status`) instead of activating
-the venv. If you prefer to activate, `.\.venv\Scripts\activate` still works.
+Open a **new** terminal after `update-shell` so the PATH change takes
+effect, then verify:
+
+```powershell
+where.exe tsh                            # should print ...\.local\bin\tsh.exe
+tsh --version
+```
+
+`--editable` means `git pull` is enough to upgrade — no re-install needed.
+To remove later: `uv tool uninstall tsh`.
+
+### Option B — Dev checkout (only if you're working on tsh itself)
+
+```powershell
+cd "C:\path\to\timesheet_helper"
+uv sync --all-extras                     # one-time / after pulling new commits
+uv run pytest -q                         # confirm tests still pass
+```
+
+`uv run <cmd>` invokes the project venv automatically. All `tsh` commands
+below can be prefixed with `uv run` (e.g. `uv run tsh status`) instead of
+activating the venv. Heads-up: in this mode `tsh` is **not** on the
+system PATH — GUI git clients won't find it, and the git hook needs you
+to also do `uv tool install --editable .` (Option A) for branch-switching
+to work outside a venv terminal.
 
 ## Background install (one-time)
 
@@ -52,12 +88,61 @@ tsh config set git.branch_pattern '<your-regex>'
 
 Manual switching (`tsh switch SFXS-9999`) still works in repos that don't have the hook installed.
 
+### Hook doesn't fire from GitLens / SourceTree / VS Code Git?
+
+If the hook is installed (`tsh hook status` confirms) and switching from
+the **terminal** works but switching via **GitLens** or another GUI git
+client doesn't move the timer, it's almost always one of:
+
+1. **`tsh` isn't on PATH for the GUI's process.** GUI clients inherit the
+   user PATH, not your venv's PATH. If you installed via Option B
+   (`uv sync`), `tsh.exe` lives only inside `.venv\Scripts` and GitLens
+   can't see it. **Fix:** also run `uv tool install --editable .` (Option A
+   above), then restart the GUI client so it picks up the new PATH.
+2. **The tracker daemon isn't running.** The hook calls `tsh switch
+   --from-branch`, which exits silently when the daemon is down. Confirm
+   with `tsh autostart status`.
+
+Quick sanity check: open a terminal at the repo root and run
+`./.git/hooks/post-checkout '' '' 1` — that emulates what git invokes.
+If it errors with "tsh: command not found", you're in case 1.
+
 ## One-time auth (skip if already done)
+
+### Step 1 — get a Jira API token
+
+1. Go to **https://id.atlassian.com/manage-profile/security/api-tokens**
+   (sign in with your Atlassian account if prompted).
+2. Click one of:
+   - **Create API token** — classic, full-account token. Simplest option.
+   - **Create API token with scopes** — recommended, least-privilege.
+     - Give it a **Name** (e.g. `tsh-timesheet-helper`).
+     - Pick an **Expiration date** (max 365 days — calendar a renewal).
+     - **App:** select **Jira**.
+     - **Scopes:** tick exactly these three classic scopes and nothing
+       else (tsh only ever calls `/myself`, `/search`, `/issue/{key}`,
+       and `POST /issue/{key}/worklog`):
+
+       | Scope             | Used by tsh for                                |
+       |-------------------|------------------------------------------------|
+       | `read:jira-user`  | `tsh auth test` (calls `/rest/api/3/myself`)   |
+       | `read:jira-work`  | `tsh tasks`, `tsh start <KEY>` (search + issue)|
+       | `write:jira-work` | `tsh push` (creates worklogs)                  |
+
+3. Click **Create**, then **Copy** the token immediately — Atlassian
+   only shows it once. Paste it somewhere safe for the next step.
+
+### Step 2 — log in
 
 ```powershell
 tsh auth login                           # prompts for base URL, email, API token
 tsh auth test                            # expect: "Authenticated as <your name>"
 ```
+
+If `tsh auth test` returns **401 Unauthorized**, the token's scopes are
+wrong — the most common miss is forgetting `read:jira-user`, since that
+gates `/myself` (which is the first call `tsh auth test` makes). Mint a
+new token with all three scopes above.
 
 Token goes to Windows Credential Manager (service `tsh-jira`); base URL + email go to `~/.tsh/config.toml`.
 

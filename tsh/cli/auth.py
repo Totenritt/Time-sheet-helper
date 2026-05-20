@@ -19,7 +19,11 @@ def auth_group() -> None:
     "--token",
     prompt="Jira API token",
     hide_input=True,
-    help="API token from id.atlassian.com",
+    help=(
+        "Atlassian API token. Create one at "
+        "https://id.atlassian.com/manage-profile/security/api-tokens — for a "
+        "scoped token, tick read:jira-user + read:jira-work + write:jira-work."
+    ),
 )
 def login(base_url: str, email: str, token: str) -> None:
     """Save Jira credentials. Token goes to OS keyring; URL+email to config."""
